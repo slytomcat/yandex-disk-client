@@ -14,36 +14,30 @@ from gi.repository import Gtk
 
 _ = str   # temporary replacement for localization functionality
 
-def getToken(GUI=False):
-  '''Receives access token via verification code that user can see on authorization page.
-     Additionally it receives the user login name
+def getToken(app_id, app_secret, gui=False):
+  '''Receive access token via verification code that user can get on authorization page.
 
-     Usage token, login = getAuth(UI)
+     Usage token = getAuth(app_id, app_secret, GUI)
 
-     Interaction with user is performed via GUI (UI=True) or via CLI (UI=False or missed)'''
-
-  HOST = uname().nodename
-  TOKEN = ''
+     Interaction with user is performed via GUI (GUI=True) or via CLI (GUI=False or missed)
+  '''
+  host = uname().nodename
+  token = ''
   msg1 = _("The authorization page will be opened in your browser automatically. If it"
            " doesn't happen then copy link below and paste into your web-browser.\n")
   msg2 = _("\nAfter authorization you'll receive the confirmation code. Put the code "
            "into the input box below and press Enter\n\n")
-  msg3 = _("Put the confirmation code here:")
+  msg3 = _("Enter the confirmation code here:")
 
   url = ('https://oauth.yandex.ru/authorize?'
-           'response_type=code'                  # 'token' itself  or 'code' for token request
-           '&client_id=389b4420fc6e4f509cda3b533ca0f3fd'              # App ID
-    #       '&device_id={device_id}'              # Device ID
-           '&display=popup'                      # popup - no additional decoration on the page
-           '&device_name=%s'%HOST                # Device name (Host name)
-    #       '&login_hint={login_hint}'            # user name or e-mail
-    #       '&force_confirm={force_confirm}'      # Force the access confirmation (if already have)
-    #       '&state={state}'                      # 1024 symbols returnable value (CSRF protection)
+           'response_type=code'                    # 'token' itself  or 'code' for token request
+           '&client_id=%s' % app_id +              # application identificator
+           '&display=popup'                        # popup - no additional decoration on the page
+           '&device_name=%s' % (uname().nodename)  # device name (host name)
         )
-  while TOKEN == '':
+  while token == '':
     call(['xdg-open', url], stdout=DEVNULL, stderr= DEVNULL)
-
-    if GUI:
+    if gui:
       dlg=Gtk.Dialog(_('Yandex.Disk-indicator authorization'), flags=1)
       #self.set_icon(logo)
       dlg.set_border_width(6)
@@ -54,38 +48,38 @@ def getToken(GUI=False):
       label = Gtk.Label(msg2 + msg3);  label.set_line_wrap(True);   dialogBox.add(label)
       entry = Gtk.Entry();         dialogBox.add(entry);      dlg.get_content_area().add(dialogBox)
       dlg.show_all();              dlg.run()
-      CODE = entry.get_text();     dlg.destroy()
+      code = entry.get_text();     dlg.destroy()
     else:
-      print(msg1)
-      print(url)
-      print(msg2)
-      CODE = input(msg3)
+      print(msg1, '\n', url, '\n', msg2)
+      code = input(msg3)
     r = requests.post('https://oauth.yandex.ru/token',
                       {'grant_type': 'authorization_code',
-                       'code': CODE,
-                       'client_id': '389b4420fc6e4f509cda3b533ca0f3fd',
-                       'client_secret': '5145f7a99e7943c28659d769752f6dae',
-                       'device_name': HOST
+                       'code': code,
+                       'client_id': app_id,
+                       'client_secret': app_secret,
+                       'device_name': host
                       })
     if r.status_code == 200:
-      TOKEN = r.json()['access_token']
-
-  return TOKEN
+      token = r.json()['access_token']
+  return token
 
 def getLogin(token):
-  # Receive the user login - it is required for notification service
+  ''' Receive the user login - it is required for notification service
+  '''
   r = requests.get('https://webdav.yandex.ru/?userinfo',
-                   headers={'Accept': '*/*', 'Authorization': 'OAuth %s' % TOKEN})
-  login = re.findall(r'login:(.*)\n', r.text)[0]
-  return login
+                   headers={'Accept': '*/*', 'Authorization': 'OAuth %s' % token})
+  if r.status_code == 200:
+    return re.findall(r'login:(.*)\n', r.text)[0]
+  return None
 
 
 
 if __name__ == '__main__':
-  #TOKEN = getToken()
+  # application identity ???? I have no idea how to keep it from beeng compromised ????
+  app_id = '389b4420fc6e4f509cda3b533ca0f3fd'
+  app_secret = '5145f7a99e7943c28659d769752f6dae'
 
-  TOKEN = 'AQAAAAAUgLEfAAOGGV4LyRANGEgGv-oUde5AubE'
-
+  TOKEN = getToken(app_id, app_secret)
   LOGIN = getLogin(TOKEN)
 
   print(TOKEN)
