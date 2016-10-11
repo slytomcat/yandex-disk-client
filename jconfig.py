@@ -22,7 +22,6 @@
 #
 #
 from json import dump as jdump, load as jload
-from os import remove
 
 class Config(dict):
   ''' General purpose configuration class.
@@ -98,6 +97,7 @@ class Config(dict):
 
 if __name__ == '__main__':
   # tests
+  from os import remove
   defConf = {'type': 'std',
              'disks': {'stc': {'path': '~/ydd',
                                'auth': '87816741346',
@@ -120,15 +120,15 @@ if __name__ == '__main__':
     pass
 
   config = Config(path, load=False)
-  print('len of not loaded config               (0):', len(config))
-  print('config.loaded of not loaded config (False):', config.loaded)
+  print('len of not loaded config is 0              :', len(config) == 0)
+  print('config.loaded of not loaded config is False:', config.loaded == False)
   config.append(defConf)
-  print('len of appended config                 (2):', len(config))
-  print('config.cannged of appended config   (True):', config.changed)
+  print('len of appended config is 2                :', len(config) == 2)
+  print('config.cannged of appended config is True  :', config.changed == True)
   if config.changed:
     config.save()
-  print('config.cannged of saved config     (False):', config.changed)
+  print('config.cannged of saved config is False    :', config.changed == False)
   newConfig = Config(path)
-  print('config.loaded of loaded config      (True):', newConfig.loaded)
-  print('comparison test passed                    :', config==newConfig)
+  print('config.loaded of loaded config is True     :', newConfig.loaded == True)
+  print('comparison test passed                     :', (config == newConfig) == True)
   remove('cfg.cfg')
