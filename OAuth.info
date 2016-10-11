@@ -1,13 +1,22 @@
+https://oauth.yandex.ru/
+
+https://oauth.yandex.ru/client/389b4420fc6e4f509cda3b533ca0f3fd
+
 Права:
 Яндекс.Диск REST API
-Доступ к папке приложения на Диске
-Доступ к информации о Диске
-Чтение всего Диска
-Запись в любом месте на Диске
+-Доступ к папке приложения на Диске
+-Доступ к информации о Диске
+-Чтение всего Диска
+-Запись в любом месте на Диске
+Яндекс.Диск WebDAV API
+-Доступ к Яндекс.Диску для приложений
+Транспорт нотификаций push.yandex.ru
+-Использование API транспорта нотификаций
+
 ID: 389b4420fc6e4f509cda3b533ca0f3fd
 Пароль: 5145f7a99e7943c28659d769752f6dae
 Callback URL: https://oauth.yandex.ru/verification_code
 
 dev token get: https://oauth.yandex.ru/authorize?response_type=token&client_id=389b4420fc6e4f509cda3b533ca0f3fd
-dev token: AQAAAAAUgLEfAAOGGdaKLGuzJETpiPiJTWz93Rc
+dev token: AQAAAAAUgLEfAAOGGV4LyRANGEgGv-oUde5AubE
 

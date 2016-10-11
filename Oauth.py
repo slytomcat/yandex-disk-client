@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 #  OAuth - get the OAuth authorization token
 #
@@ -5,6 +6,7 @@
 from os import uname
 from subprocess import call, DEVNULL
 import requests
+import re
 
 from gi import require_version
 require_version('Gtk', '3.0')
@@ -13,6 +15,13 @@ from gi.repository import Gtk
 _ = str   # temporary replacement for localization functionality
 
 def getToken(GUI=False):
+  '''Receives access token via verification code that user can see on authorization page.
+     Additionally it receives the user login name
+
+     Usage token, login = getAuth(UI)
+
+     Interaction with user is performed via GUI (UI=True) or via CLI (UI=False or missed)'''
+
   HOST = uname().nodename
   TOKEN = ''
   msg1 = _("The authorization page will be opened in your browser automatically. If it"
@@ -60,11 +69,25 @@ def getToken(GUI=False):
                       })
     if r.status_code == 200:
       TOKEN = r.json()['access_token']
+
   return TOKEN
+
+def getLogin(token):
+  # Receive the user login - it is required for notification service
+  r = requests.get('https://webdav.yandex.ru/?userinfo',
+                   headers={'Accept': '*/*', 'Authorization': 'OAuth %s' % TOKEN})
+  login = re.findall(r'login:(.*)\n', r.text)[0]
+  return login
+
 
 
 if __name__ == '__main__':
-  TOKEN = getToken()
-  print(TOKEN)
+  #TOKEN = getToken()
 
+  TOKEN = 'AQAAAAAUgLEfAAOGGV4LyRANGEgGv-oUde5AubE'
+
+  LOGIN = getLogin(TOKEN)
+
+  print(TOKEN)
+  print(LOGIN)
 
