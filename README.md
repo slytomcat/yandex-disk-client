@@ -3,6 +3,8 @@ Unofisial Yandex.Disk synchronization client
 
 Project discussion (russian): http://forum.ubuntu.ru/index.php?topic=282770
 
+Files:
+
 Oauth.py - oauth Yandex authorisation via verification code (CLI/GUI) - completed
 
 OauthTest.py - test of Oauth.py pacage - completed
