@@ -37,8 +37,8 @@ class Disk(object):
 
     return self.currentStatus
 
-  def activated(change={}):
-    '''Redefined class method for catch the client activation.
+  def changed(change={}):
+    '''Redefined class method for catch the client status changes.
        It has change parameter that is the set of changed aspects of the client.
        Client changed aspects can be:
         - 'status'    when synchronization status changed
@@ -70,9 +70,33 @@ class Disk(object):
     doDownloads()
     startWatch(userLocalDir)
 
+def appExit(msg=None):
+  from sys import exit as sysExit
+
+  for disk in disks:
+    disk.exit()
+  sysExit(msg)
+
 if __name__ == '__main__':
+  from jconfig import Config
+  from gettext import translation
+
+  appName = 'yd-client'
   osUserHome = getenv("HOME")
-  config = readDiskConf(osUserHome+'/.config/yd-tools/client.conf')
+  confHome = osUserHome + '/.config/' + appName
+  config = Config(confHome + 'client.conf')
+  if not config.loaded:
+    makedirs(confHome)
+    config.changed = True
+  config.setdefault('type', 'std')
+  config.setdefault('disks', {})
+  if config.changed:
+    config.save()
+  # Setup localization
+  translation(appName, '/usr/share/locale', fallback=True).install()
+
   disks = []
-  for user in config.users:
+  for user in config['disks'].items():
     disks.append(Disk(user))
+  if not disks:
+    appExit(_('No accounts configred'))

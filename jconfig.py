@@ -25,7 +25,7 @@ from json import dump as jdump, load as jload
 
 class Config(dict):
   ''' General purpose configuration class.
-      The value of the cofig (dict) corresponds to the configuration file where config value is
+      The value of the config (dict) corresponds to the configuration file where config value is
       saved in JSON format.
 
       Methods:

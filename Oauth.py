@@ -2,11 +2,26 @@
 # -*- coding: utf-8 -*-
 #  OAuth - get the OAuth authorization token
 #
+#  Copyright 2016 Sly_tom_cat <slytomcat@mail.ru>
 #
+#  This program is free software; you can redistribute it and/or modify
+#  it under the terms of the GNU General Public License as published by
+#  the Free Software Foundation; either version 2 of the License, or
+#  (at your option) any later version.
+#
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+#
+#  You should have received a copy of the GNU General Public License
+#  along with this program. If not, see <http://www.gnu.org/licenses/>.
+#
+
 from os import uname
 from subprocess import call, DEVNULL
 import requests
-import re
+from re import findall
 
 from gi import require_version
 require_version('Gtk', '3.0')
@@ -64,24 +79,10 @@ def getToken(app_id, app_secret, gui=False):
   return token
 
 def getLogin(token):
-  ''' Receive the user login - it is required for notification service
+  ''' Receive the user login by token.
   '''
   r = requests.get('https://webdav.yandex.ru/?userinfo',
                    headers={'Accept': '*/*', 'Authorization': 'OAuth %s' % token})
   if r.status_code == 200:
-    return re.findall(r'login:(.*)\n', r.text)[0]
+    return findall(r'login:(.*)\n', r.text)[0]
   return None
-
-
-
-if __name__ == '__main__':
-  # application identity ???? I have no idea how to keep it from beeng compromised ????
-  app_id = '389b4420fc6e4f509cda3b533ca0f3fd'
-  app_secret = '5145f7a99e7943c28659d769752f6dae'
-
-  TOKEN = getToken(app_id, app_secret)
-  LOGIN = getLogin(TOKEN)
-
-  print(TOKEN)
-  print(LOGIN)
-

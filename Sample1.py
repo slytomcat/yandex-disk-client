@@ -23,9 +23,6 @@ def expand(url, params):
     url = url.replace('{%s}' % key, value)
   return url
 
-TOKEN = 'AQAAAAAUgLEfAAOGGV4LyRANGEgGv-oUde5AubE'
-headers = {'Accept': 'application/hal+json', 'Authorization':TOKEN}
-
 def request(method, url, params=None):
     url = expand(url, params or {})
     r = {'GET': requests.get,
@@ -47,6 +44,14 @@ def do(resource, action, params=None):
 
 
 if __name__ == '__main__':
+    from re import findall
+    with open('OAuth.info', 'rt') as f:
+      TOKEN = findall(r'devtoken: (.*)', f)[0].strip()
+    print(TOKEN)
+    quit()
+
+    headers = {'Accept': 'application/hal+json', 'Authorization':TOKEN}
+
     # создаём папку
     _, folder = request('PUT',
                         expand('https://cloud-api.yandex.net/v1/disk/resources?path={path}',
