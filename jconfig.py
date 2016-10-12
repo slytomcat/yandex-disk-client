@@ -131,4 +131,5 @@ if __name__ == '__main__':
   newConfig = Config(path)
   print('config.loaded of loaded config is True     :', newConfig.loaded == True)
   print('comparison test passed                     :', (config == newConfig) == True)
-  remove('cfg.cfg')
+
+  #remove('cfg.cfg')

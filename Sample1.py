@@ -46,9 +46,7 @@ def do(resource, action, params=None):
 if __name__ == '__main__':
     from re import findall
     with open('OAuth.info', 'rt') as f:
-      TOKEN = findall(r'devtoken: (.*)', f)[0].strip()
-    print(TOKEN)
-    quit()
+      TOKEN = findall(r'devtoken: (.*)', f.read())[0].strip()
 
     headers = {'Accept': 'application/hal+json', 'Authorization':TOKEN}
 
