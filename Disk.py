@@ -19,19 +19,29 @@
 
 from os import remove, makedirs, getpid, geteuid, getenv
 from pyinotify import ProcessEvent, WatchManager, Notifier, ThreadedNotifier,\
-                      IN_MODIFY, IN_DELETE, IN_CREATE, IN_MOVED_FROM, IN_MOVED_TO
-from threading import Thread
+                      IN_MODIFY, IN_DELETE, IN_CREATE, IN_MOVED_FROM, IN_MOVED_TO, IN_ATTRIB
+from threading import Thread, Event
 from queue import Queue
 from concurrent.futures import ThreadPoolExecutor
+from Cloud import Cloud
 
 class Disk(object):
-  '''High-level Yandex.disk client interface
+  '''High-level Yandex.disk client interface.
+     It can have following statuses:
+      - busy - when some activities are currntly performed
+      - idle - no activities are currntly performed
+      - none - not connected
+      - no_net - network connection is not available
+      - error - some error
   '''
   def __init__(self, user):
     self.user = user
-    self.connected = False
-    self.watch = self._PathWatcher(self.user['path'].replace('~', osUserHome))
-    self.executor = ThreadPoolExecutor(3) # number of working threads
+    self.status = 'none'
+    self.cloud = Cloud(self.user['auth'])
+    self.path = self.user['path'].replace('~', osUserHome)
+    self.watch = self._PathWatcher(self.path)
+    self.executor = ThreadPoolExecutor()   # set number of working threads automatically
+    self.shutdown = Event()
     self.handler = Thread(target=self._eventHandler)
     self.handler.start()
     self.changed({'init'})
@@ -39,46 +49,79 @@ class Disk(object):
       self.connect()
 
   def exit(self):
-    self.watch.stop()
-    if self.connected:
-      self.stop()
+    if self.status != 'none':
+      self.disconnect()
+    self.shutdown.set()
     self.executor.shutdown(wait=True)
 
-  def _eventHandler(self):
-    def moveCloudObj(event):
-      print('move from %s, to %s'% (event.pathname, event.path), event)
-    def updateCloudObj(event):
-      print('update %s' % event.pathname, event)
-    def deleteCloudObj(event):
-      print('delete %s' % event.pathname, event)
-    def createCloudObj(event):
-      print('new %s' % event.pathname, event)
+  def fullSync(self):
+    cSet = {for item.pathname in self.cloud.getFullList():}
+    lSet = {} # need recurcive list of local folder
+    for path in cSet - lSet:
+      ft = self.executor.submit(self.cloud.download, (path, self.path + '/' + path))
+      ft.add_done_callback(taskCB)
+    for path in lSetc - cSet:
+      ft = self.executor.submit(self.cloud.upload, (self.path + '/' + path, path))
+      ft.add_done_callback(taskCB)
 
-    while True:
+  def _eventHandler(self):
+
+    def moveCloudObj(event):
+      print('move from %s, to %s'% (event.pathname, event.path))
+      self.cloud.move(event.pathname, event.path)
+
+    def updateCloudObj(event):
+      print('update %s' % event.pathname)
+      self.cloud.upload(event.pathname, relativePath(event.pathname, start=self.path))
+
+    def deleteCloudObj(event):
+      print('delete %s' % event.pathname)
+      self.cloud.delete(event.pathname)
+
+    def newCloudObj(event):
+      self.cloud.upload(event.pathname, relativePath(event.pathname, start=self.path))
+
+    def metaUpdCloudObj(event):
+      print('meta %s' % event.pathname)
+      self.cloud.upload(event.pathname, relativePath(event.pathname, start=self.path))
+
+    def taskCB(ft):
+      if ft.done():
+        print('done')
+        e = ft.exception()
+        if e is not None:
+          print(e)
+
+    while not self.shutdown.is_set():
       event = self.watch.get()
-      if event.mask & (IN_MOVED_TO | IN_MOVED_FROM):
+      if event.mask & (IN_MOVED_FROM | IN_MOVED_TO):
         try:
           event2 = self.watch.get(timeout=0.01)
           if event.cookie == event2.cookie:
             event.path = event2.pathname
-            self.executor.submit(moveCloudObj, event)
+            task = moveCloudObj
         except:
           if event.mask & IN_MOVED_TO:
-            self.executor.submit(createCloudObj, event)
+            task = newCloudObj
           else:
-            self.executor.submit(deleteCloudObj, event)
+            task = deleteCloudObj
       elif event.mask & (IN_CREATE):
-        self.executor.submit(createCloudObj, event)
+        task = newCloudObj
       elif event.mask & (IN_DELETE):
-        self.executor.submit(deleteCloudObj, event)
+        task = deleteCloudObj
       elif event.mask & IN_MODIFY:
-        self.executor.submit(updateCloudObj, event)
+        task = updateCloudObj
+      elif event.mask & IN_ATTRIB:
+        task = metaUpdCloudObj
 
+      ft = self.executor.submit(task, event)
+      ft.add_done_callback(taskCB)
 
   class _PathWatcher(Queue):               # iNotify watcher for directory
     '''
     iNotify watcher object for monitor of changes in directory.
     '''
+    FLAGS = IN_MODIFY|IN_DELETE|IN_CREATE|IN_MOVED_FROM|IN_MOVED_TO|IN_ATTRIB
     def __init__(self, path):
 
       class _EH(ProcessEvent):
@@ -93,10 +136,7 @@ class Disk(object):
 
     def start(self):
       # Add watch and start watching
-      self._watch = self._watchMngr.add_watch(self._path,
-                                              IN_MODIFY|IN_DELETE|IN_CREATE|
-                                              IN_MOVED_FROM|IN_MOVED_TO,
-                                              rec=True)
+      self._watch = self._watchMngr.add_watch(self._path, self.FLAGS, rec=True)
       self._iNotifier.start()
 
     def stop(self):
@@ -104,25 +144,25 @@ class Disk(object):
       self._watchMngr.rm_watch(self._watch.values())
       self._iNotifier.stop()
 
-
   def connect(self):
     '''Activate synchronizations with Yandex.disk'''
-    if not self.connected:
+    if self.status == 'none':
       self.watch.start()
 
       #openListenSocket(user[auth])
 
-      self.connected = True
+      self.status = 'idle'
       self.changed({'stat'})
+      self.fullSync()
 
   def disconnect(self):
     '''Deactivate synchronizations with Yandex.disk'''
-    if self.connected:
+    if self.status != 'none':
       self.watch.stop()
 
       #closeListenSocket(user[auth])
 
-      self.connected = False
+      self.status = 'none'
       self.changed({'stat'})
 
 
@@ -145,8 +185,6 @@ class Disk(object):
     '''
     print(change)
 
-
-
 def appExit(msg=None):
   from sys import exit as sysExit
 
@@ -158,27 +196,63 @@ if __name__ == '__main__':
   from jconfig import Config
   from gettext import translation
   from time import sleep
+  from Oauth import getToken, getLogin
+  from os.path import exists as pathExists, relpath as relativePath
+  from re import findall
 
   appName = 'yd-client'
   osUserHome = getenv("HOME")
   confHome = osUserHome + '/.config/' + appName
   config = Config(confHome + '/client.conf')
   if not config.loaded:
-    makedirs(confHome)
+    try:
+      makedirs(confHome)
+    except FileExistsError:
+      pass
     config.changed = True
   config.setdefault('type', 'std')
   config.setdefault('disks', {})
   if config.changed:
     config.save()
-  print(config)
   # Setup localization
   translation(appName, '/usr/share/locale', fallback=True).install()
 
   disks = []
-  for user in config['disks'].values():
-    disks.append(Disk(user))
-  if not disks:
-    appExit(_('No accounts configred'))
+  while True:
+    for user in config['disks'].values():
+      fullpath = user['path'].replace('~', osUserHome)
+      if not pathExists(fullpath):
+        try:
+          makedirs(fullpath)
+        except:
+          appExit(_("Error: Can't access the local folder %s" % fullpath))
+      disks.append(Disk(user))
+    if disks:
+      break
+    else:
+      print(_('No accounts configured'))
+      if input(_('Do you want to configure new account (Y/n):')).lower() not in ('', 'y'):
+        appExit(_('Exit.'))
+      else:
+        with open('OAuth.info', 'rt') as f:
+          buf = f.read()
+        fullpath = ''
+        while not pathExists(fullpath):
+          path = input('Enter the path to local folder '
+                       'which will by synchronized with cloud disk. (Default: ~/Yandex.Disk):')
+          fullpath = path.replace('~', osUserHome)
+          if not pathExists(fullpath):
+            try:
+              makedirs(fullpath)
+            except:
+              print('Error: Incorrect path specified.')
+        token = getToken(findall(r'AppID: (.*)', buf)[0].strip(),
+                         findall(r'AppSecret: (.*)', buf)[0].strip())
+        login = getLogin(token)
+        config['disks'][login] = {'login': login, 'auth': token, 'path': path, 'start': True,
+                                  'ro': False, 'ow': False, 'exclude': []}
+        config.save()
+
   while True:
     sleep(3)
-    print(disks[0].status(), end='\r')
+    #print(disks[0].status(), end='\r')

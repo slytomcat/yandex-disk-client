@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+#
 #  OAuth - get the OAuth authorization token
 #
 #  Copyright 2016 Sly_tom_cat <slytomcat@mail.ru>

@@ -99,13 +99,15 @@ if __name__ == '__main__':
   # tests
   from os import remove
   defConf = {'type': 'std',
-             'disks': {'stc': {'path': '~/ydd',
+             'disks': {'stc': {'login': 'stc',
+                               'path': '~/ydd',
                                'auth': '87816741346',
                                'start': True,
                                'exclude': ['tests', 'other/private'],
                                'ro': False,
                                'ow': False },
-                       'stc1':{'path': '~/yd',
+                       'stc1':{'login': 'stc',
+                               'path': '~/yd',
                                'auth': '84458090987',
                                'start': True,
                                'exclude': ['new'],
@@ -132,4 +134,4 @@ if __name__ == '__main__':
   print('config.loaded of loaded config is True     :', newConfig.loaded == True)
   print('comparison test passed                     :', (config == newConfig) == True)
 
-  #remove('cfg.cfg')
+  remove('cfg.cfg')
