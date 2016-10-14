@@ -87,3 +87,16 @@ def getLogin(token):
   if r.status_code == 200:
     return findall(r'login:(.*)\n', r.text)[0]
   return None
+
+if __name__ == '__main__':
+  from re import findall
+
+  with open('OAuth.info', 'rt') as f:
+    buf = f.read()
+  ID = findall(r'AppID: (.*)', buf)[0].strip()
+  secret = findall(r'AppSecret: (.*)', buf)[0].strip()
+
+  token = Oauth.getToken(ID, secret)
+  login = Oauth.getLogin(token)
+
+  print(login, token)

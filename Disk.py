@@ -55,6 +55,7 @@ class Disk(object):
     self.executor.shutdown(wait=True)
 
   def fullSync(self):
+    '''
     cSet = {for item.pathname in self.cloud.getFullList():}
     lSet = {} # need recurcive list of local folder
     for path in cSet - lSet:
@@ -63,59 +64,62 @@ class Disk(object):
     for path in lSetc - cSet:
       ft = self.executor.submit(self.cloud.upload, (self.path + '/' + path, path))
       ft.add_done_callback(taskCB)
+    '''
+    pass
 
   def _eventHandler(self):
 
-    def moveCloudObj(event):
-      print('move from %s, to %s'% (event.pathname, event.path))
-      self.cloud.move(event.pathname, event.path)
+    def new(event):
+      if event.dir:
+        submit(self.cloud.mkDir, (localpath(event.pathname),))
+      else:
+        submit(self.cloud.upload,
+               (event.pathname, localpath(event.pathname)))
 
-    def updateCloudObj(event):
-      print('update %s' % event.pathname)
-      self.cloud.upload(event.pathname, relativePath(event.pathname, start=self.path))
-
-    def deleteCloudObj(event):
-      print('delete %s' % event.pathname)
-      self.cloud.delete(event.pathname)
-
-    def newCloudObj(event):
-      self.cloud.upload(event.pathname, relativePath(event.pathname, start=self.path))
-
-    def metaUpdCloudObj(event):
-      print('meta %s' % event.pathname)
-      self.cloud.upload(event.pathname, relativePath(event.pathname, start=self.path))
+    def moved(event):
+      if event.mask & IN_MOVED_TO:  # moved in = new
+        new(event)
+      else:  # moved out = deleted
+        submit(self.cloud.delete, (localpath(event.pathname),))
 
     def taskCB(ft):
       if ft.done():
-        print('done')
-        e = ft.exception()
-        if e is not None:
-          print(e)
+        print('done:', ft.result())
+        #e = ft.exception()
+        #if e is not None:
+        #  print(e)
+
+    def submit(task, args):
+      ft = self.executor.submit(task, *args)
+      ft.add_done_callback(taskCB)
+
+    def localpath(path):
+      return path[len(self.path)+1:]
 
     while not self.shutdown.is_set():
       event = self.watch.get()
+      print(event)
       if event.mask & (IN_MOVED_FROM | IN_MOVED_TO):
         try:
           event2 = self.watch.get(timeout=0.01)
+          print(event2)
           if event.cookie == event2.cookie:
-            event.path = event2.pathname
-            task = moveCloudObj
-        except:
-          if event.mask & IN_MOVED_TO:
-            task = newCloudObj
+            submit(self.cloud.move, (localpath(event.pathname),
+                                     localpath(event2.pathname)))
           else:
-            task = deleteCloudObj
+            moved(event)
+            moved(event2)
+        except:
+          moved(event)
       elif event.mask & (IN_CREATE):
-        task = newCloudObj
+        new(event)
       elif event.mask & (IN_DELETE):
-        task = deleteCloudObj
+        submit(self.cloud.delete, (localpath(event.pathname),))
       elif event.mask & IN_MODIFY:
-        task = updateCloudObj
+        submit(self.cloud.upload, (event.pathname, localpath(event.pathname)))
       elif event.mask & IN_ATTRIB:
-        task = metaUpdCloudObj
+        submit(self.cloud.upload, (event.pathname, localpath(event.pathname)))
 
-      ft = self.executor.submit(task, event)
-      ft.add_done_callback(taskCB)
 
   class _PathWatcher(Queue):               # iNotify watcher for directory
     '''
@@ -129,7 +133,7 @@ class Disk(object):
           _handleEvent(event)
 
       Queue.__init__(self)
-      self._path = path
+      self._path = path + '/'
       _handleEvent = self.put
       self._watchMngr = WatchManager()
       self._iNotifier = ThreadedNotifier(self._watchMngr, _EH())
@@ -196,7 +200,7 @@ if __name__ == '__main__':
   from jconfig import Config
   from gettext import translation
   from time import sleep
-  from Oauth import getToken, getLogin
+  from OAuth import getToken, getLogin
   from os.path import exists as pathExists, relpath as relativePath
   from re import findall
 

@@ -24,7 +24,7 @@ from time import sleep
 class Cloud(object):
   def __init__(self, token):
     # make headers for requests that require authorization
-    self._headers = {'Accept': 'application/hal+json', 'Authorization': token}
+    self._headers = {'Accept': 'application/json', 'Authorization': token}
 
   def _expand(self, url, params):
     '''It replaces '{key}' inside url onto 'value' basing on params dictionary ({'key':'value'}).
@@ -33,9 +33,10 @@ class Cloud(object):
       url = url.replace('{%s}' % key, value)
     return url
 
-  def _request(self, method, url, params=None):
+  def _request(self, req, params=None):
     '''Perform the request with expanded URL via specified method using predefined headers
     '''
+    method, url = req
     r = {'GET': requests.get,
          'PUT': requests.put,
          'DELETE': requests.delete,
@@ -44,10 +45,10 @@ class Cloud(object):
     return r.status_code , r.json() if r.text else ''
 
   def _wait(self, res):
-    '''waits for asynchronous operation completion'''
+    '''waits for asynchronous operation completion '''
     while True:
       sleep(0.5)  # reasonable pause between continuous requests
-      status, r = self._request(res['method'], res['href'])
+      status, r = self._request((res['method'], res['href']))
       if status == 200:
         if r["status"] == "success":
           return True
@@ -56,73 +57,94 @@ class Cloud(object):
       else:
         return False
 
+  CMD = {'info':  (('GET',
+                    'https://cloud-api.yandex.net:443/v1/disk'
+                    '?fields=total_space%2Ctrash_size%2Cused_space%2Crevision'),
+                   200),
+         'last':  (('GET',
+                    'https://cloud-api.yandex.net/v1/disk/resources/last-uploaded?limit=10'
+                    '&fields=path'),
+                   200),
+         'res':   (('GET',
+                    'https://cloud-api.yandex.net/v1/disk/resources?path={1}'
+                    '&fields=size%2Cmodified%2Ccreated%2Csha256%2Cpath%2Ctype%2Crevision'),
+                   200),
+         'list':  (('GET',
+                    'https://cloud-api.yandex.net/v1/disk/resources/files?limit=2147483647'),
+                   200),
+         'mkdir': (('PUT',
+                    'https://cloud-api.yandex.net/v1/disk/resources?path={1}'),
+                   201),
+         'del':   (('DELETE',
+                    'https://cloud-api.yandex.net/v1/disk/resources?path={1}&permanently={2}'),
+                   204),
+         'trash': (('DELETE',
+                    'https://cloud-api.yandex.net:443/v1/disk/trash/resources'),
+                   204),
+         'move':  (('POST',
+                    'https://cloud-api.yandex.net:443/v1/disk/resources/move?from={1}&path={2}'),
+                   201),
+         'copy':  (('POST',
+                    'https://cloud-api.yandex.net:443/v1/disk/resources/copy?from={1}&path={2}'),
+                   201),
+         'up':    (('GET',
+                    'https://cloud-api.yandex.net/v1/disk/resources/upload?path={1}&overwrite={2}'),
+                   200),
+         'down':  (('GET',
+                    'https://cloud-api.yandex.net/v1/disk/resources/download?path={1}'),
+                   200)}
+
   def getDiskInfo(self):
     '''Receives cloud disk status information'''
-    status, res = self._request('GET', 'https://cloud-api.yandex.net:443/v1/disk')
-    if status == 200:
-      # Remove unnecessary info
-      del res['system_folders']
-      del res['is_paid']
+    req, code = self.CMD['info']
+    status, res = self._request(req)
+    if status == code:
       return res
     else:
       return False
 
   def getLast(self):
-    '''Receives 10 last uploaded items'''
-    status, res = self._request('GET',
-                                'https://cloud-api.yandex.net/v1/disk/resources/last-uploaded?'
-                                          'limit=10')
-    if status == 200:
-      items = []
-      for item in res['items']:
-        items.append(item['name'])
-      return items
+    '''Receives 10 last synchronized items'''
+    req, code = self.CMD['last']
+    status, res = self._request(req)
+    if status == code:
+      return [item['path'].replace('disk:/', '') for item in res['items']]
     else:
       return False
 
-
   def getResource(self, path):
-    status, res = self._request('GET',
-                                'https://cloud-api.yandex.net/v1/disk/resources?path={path}',
-                                {'path': path})
-    if status == 200:
-      # Remove unnecessary info
-      del res['_links']
-      res.setdefault('preview', '')
-      del res['preview']
+    req, code = self.CMD['res']
+    status, res = self._request(req, {'1': path})
+    if status == code:
+      res['path'] = res['path'].replace('disk:/', '')
       return res
     else:
       return False
 
   def getFullList(self):
-    status, res = self._request('GET', 'https://cloud-api.yandex.net/v1/disk/resources/files?'
-                                          'limit=2147483647')
-    if status == 200:
-      for item in res['items']:
-        # Remove unnecessary info
-        del item['_links']
-        item.setdefault('preview', '')
-        del item['preview']
-      return res['items']
+    req, code = self.CMD['list']
+    status, res = self._request(req)
+    if status == code:
+      # filter fields
+      return [{key: i[key] if key != 'path' else i[key].replace('disk:/', '')
+                   for key in ['size', 'modified', 'created', 'sha256', 'path', 'type']
+              } for i in res['items']]
     else:
       return False
 
   def mkDir(self, path):
-    status, res = self._request('PUT',
-                                'https://cloud-api.yandex.net/v1/disk/resources?path={path}',
-                                {'path': path})
-    if status == 201:
+    req, code = self.CMD['mkdir']
+    status, res = self._request(req, {'1': path})
+    if status == code:
       return True
     else:
       return False
 
   def delete(self, path, perm=False):
     perm = 'true' if perm else 'false'
-    status, res = self._request('DELETE',
-                                'https://cloud-api.yandex.net/v1/disk/resources?path={path}'
-                                                                       '&permanently={perm}',
-                                {'path': path, 'perm': perm})
-    if status == 204:
+    req, code = self.CMD['del']
+    status, res = self._request(req, {'1': path, '2': perm})
+    if status == code:
       return True
     elif status == 202:
       return self._wait(res)
@@ -130,9 +152,9 @@ class Cloud(object):
       return False
 
   def trash(self):
-    status, res = self._request('DELETE',
-                                'https://cloud-api.yandex.net:443/v1/disk/trash/resources')
-    if status == 204:
+    req, code = self.CMD['trash']
+    status, res = self._request(req)
+    if status == code:
       return True
     elif status == 202:
       return self._wait(res)
@@ -141,11 +163,9 @@ class Cloud(object):
 
 
   def move(self, pathfrom, pathto):
-    status, res = self._request('POST',
-                                'https://cloud-api.yandex.net:443/v1/disk/resources/move?'
-                                       'from={from}&path={to}',
-                                {'from': pathfrom, 'to': pathto})
-    if status == 201:
+    req, code = self.CMD['move']
+    status, res = self._request(req, {'1': pathfrom, '2': pathto})
+    if status == code:
       return True
     elif status == 202:
       return self._wait(res)
@@ -153,11 +173,9 @@ class Cloud(object):
       return False
 
   def copy(self, pathfrom, pathto):
-    status, res = self._request('POST',
-                                'https://cloud-api.yandex.net:443/v1/disk/resources/copy?'
-                                        'from={from}&path={to}',
-                              {'from': pathfrom, 'to': pathto})
-    if status == 201:
+    req, code = self.CMD['copy']
+    status, res = self._request(req, {'1': pathfrom, '2': pathto})
+    if status == code:
       return True
     elif status == 202:
       return self._wait(res)
@@ -166,11 +184,9 @@ class Cloud(object):
 
   def upload(self, lpath, path, ow=True):
     ow = 'true' if ow else 'false'
-    status, res = self._request('GET',
-                                'https://cloud-api.yandex.net/v1/disk/resources/upload?'
-                                          'path={path}&overwrite={ow}',
-                                {'path': path,'ow': ow})
-    if status == 200:
+    req, code = self.CMD['up']
+    status, res = self._request(req, {'1': path,'2': ow})
+    if status == code:
       with open(lpath, 'rb') as f:
         r = requests.put(res['href'], data = f)
       if r.status_code == 201:
@@ -178,11 +194,9 @@ class Cloud(object):
     return False
 
   def download(self, path, lpath):
-    status, res = self._request('GET',
-                                'https://cloud-api.yandex.net/v1/disk/resources/download?'
-                                          'path={path}',
-                                {'path': path})
-    if status == 200:
+    req, code = self.CMD['mkdir']
+    status, res = self._request(req, {'1': path})
+    if status == code:
       r = requests.get(res['href'], stream=True)
       with open(lpath, 'wb') as f:
         for chunk in r.iter_content(1024):
@@ -196,7 +210,6 @@ if __name__ == '__main__':
   with open('OAuth.info', 'rt') as f:
     token = findall(r'devtoken: (.*)', f.read())[0].strip()
   c = Cloud(token)
-
   print('\nDisk Info:', c.getDiskInfo(), '\n')
   print('\nNew dir:', c.mkDir('testdir'), '\n')
   print('\nMove dir:', c.move('testdir', 'newtestdir'), '\n')
