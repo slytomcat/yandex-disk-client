@@ -110,8 +110,8 @@ class ThreadPoolExecutor(_base.Executor):
         self._shutdown_lock = threading.Lock()
         self._active = False
 
-    def notify(self):
-      print('\nPE status: %s  threads:%d' % ('active' if self._active else 'idle',
+    def notify(self, status):
+      print('\nPE status: %s  threads:%d' % ('active' if status else 'idle',
                                              len(self._threads)))
 
     def _activete(self):
@@ -119,12 +119,12 @@ class ThreadPoolExecutor(_base.Executor):
       def waiter(self):
         self._work_queue.join()
         self._active = False
-        self.notify()
+        self.notify(self._active)
 
       if self._active:
         return
       self._active = True
-      self.notify()
+      self.notify(self._active)
       # create and activate waiter Thread.
       # it waits until all task completed and reset the _active flag
       threading.Thread(target=waiter, args=(self,)).start()
