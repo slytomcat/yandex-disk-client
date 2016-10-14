@@ -5,13 +5,11 @@ Project discussion (russian): http://forum.ubuntu.ru/index.php?topic=282770
 
 Files:
 
-Oauth.py - oauth Yandex authorisation via verification code (CLI/GUI) - completed
-
-OauthTest.py - test of Oauth.py pacage - completed
+OAuth.py - Yandex OAuth authorisation via verification code (CLI/GUI) + tests - completed
 
 jconfig.py - configuration object (dict | file in JSON) + tests - completed
 
-Sample1.py - sample of YD rest API - completed
+Cloud.py - wraper class for YD rest API + tests - completed
 
 xmpp.py - some samples of xmpp client - draft
 
