@@ -58,7 +58,7 @@ class Cloud(object):
         return False
 
   CMD = {'info':  (('GET',
-                    'https://cloud-api.yandex.net:443/v1/disk'
+                    'https://cloud-api.yandex.net/v1/disk'
                     '?fields=total_space%2Ctrash_size%2Cused_space%2Crevision'),
                    200),
          'last':  (('GET',
@@ -79,13 +79,13 @@ class Cloud(object):
                     'https://cloud-api.yandex.net/v1/disk/resources?path={1}&permanently={2}'),
                    204),
          'trash': (('DELETE',
-                    'https://cloud-api.yandex.net:443/v1/disk/trash/resources'),
+                    'https://cloud-api.yandex.net/v1/disk/trash/resources'),
                    204),
          'move':  (('POST',
-                    'https://cloud-api.yandex.net:443/v1/disk/resources/move?from={1}&path={2}'),
+                    'https://cloud-api.yandex.net/v1/disk/resources/move?from={1}&path={2}'),
                    201),
          'copy':  (('POST',
-                    'https://cloud-api.yandex.net:443/v1/disk/resources/copy?from={1}&path={2}'),
+                    'https://cloud-api.yandex.net/v1/disk/resources/copy?from={1}&path={2}'),
                    201),
          'up':    (('GET',
                     'https://cloud-api.yandex.net/v1/disk/resources/upload?path={1}&overwrite={2}'),
@@ -187,14 +187,17 @@ class Cloud(object):
     req, code = self.CMD['up']
     status, res = self._request(req, {'1': path,'2': ow})
     if status == code:
-      with open(lpath, 'rb') as f:
-        r = requests.put(res['href'], data = f)
-      if r.status_code == 201:
-        return True
+      try:
+        with open(lpath, 'rb') as f:
+          r = requests.put(res['href'], data = f)
+        if r.status_code == 201:
+          return True
+      except FileNotFoundError:
+        pass
     return False
 
   def download(self, path, lpath):
-    req, code = self.CMD['mkdir']
+    req, code = self.CMD['down']
     status, res = self._request(req, {'1': path})
     if status == code:
       r = requests.get(res['href'], stream=True)
@@ -207,8 +210,13 @@ class Cloud(object):
 
 if __name__ == '__main__':
   from re import findall
+
+  '''Test token have to be stored in file 'OAuth.info' in following format:
+         devtoken:  <OAuth token>
+  '''
   with open('OAuth.info', 'rt') as f:
     token = findall(r'devtoken: (.*)', f.read())[0].strip()
+
   c = Cloud(token)
   print('\nDisk Info:', c.getDiskInfo(), '\n')
   print('\nNew dir:', c.mkDir('testdir'), '\n')

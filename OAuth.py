@@ -91,6 +91,10 @@ def getLogin(token):
 if __name__ == '__main__':
   from re import findall
 
+  '''Test ID and secret have to be stored in file 'OAuth.info' in following format:
+         AppID: <Application ID>
+         AppSecret: <Application password>'''
+
   with open('OAuth.info', 'rt') as f:
     buf = f.read()
   ID = findall(r'AppID: (.*)', buf)[0].strip()
