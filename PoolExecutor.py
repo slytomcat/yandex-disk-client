@@ -32,12 +32,12 @@ _shutdown = False
 class Queue(_Queue):
   ''' customized queue with added facility:
         unfinished() - returns total number of unfinished tasks = queue length + number of tasks
-                       which were get fro queue but still not reported as finished tasks.
+                       which were get from queue but still not reported as finished tasks.
   '''
 
   def unfinished(self):
     with self.mutex:
-      return self.unfinished_tasks + self._qsize()
+      return self.unfinished_tasks
 
 def _python_exit():
     global _shutdown
@@ -57,15 +57,17 @@ class _WorkItem(object):
         self.args = args
         self.kwargs = kwargs
 
-    def run(self):
+    def run(self, reportDone):
         if not self.future.set_running_or_notify_cancel():
             return
 
         try:
             result = self.fn(*self.args, **self.kwargs)
         except BaseException as e:
+            reportDone()
             self.future.set_exception(e)
         else:
+            reportDone()
             self.future.set_result(result)
 
 def _worker(executor_reference, work_queue):
@@ -73,10 +75,9 @@ def _worker(executor_reference, work_queue):
         while True:
             work_item = work_queue.get(block=True)
             if work_item is not None:
-                work_item.run()
+                work_item.run(work_queue.task_done)
                 # Delete references to object. See issue16284
                 del work_item
-                work_queue.task_done()
                 continue
             executor = executor_reference()
             # Exit if:
@@ -100,34 +101,16 @@ class ThreadPoolExecutor(_base.Executor):
                 execute the given calls.
         """
         if max_workers is None:
-          cpus = cpu_count()
-          self._max_workers(cpus if cpus else 1) * 5
+          self._max_workers = (cpu_count() or 1) * 5
         else:
           self._max_workers = max_workers
         self._work_queue = Queue()
         self._threads = set()
         self._shutdown = False
         self._shutdown_lock = threading.Lock()
-        self._active = False
 
-    def notify(self, status):
-      print('\nPE status: %s  threads:%d' % ('active' if status else 'idle',
-                                             len(self._threads)))
-
-    def _activete(self):
-
-      def waiter(self):
-        self._work_queue.join()
-        self._active = False
-        self.notify(self._active)
-
-      if self._active:
-        return
-      self._active = True
-      self.notify(self._active)
-      # create and activate waiter Thread.
-      # it waits until all task completed and reset the _active flag
-      threading.Thread(target=waiter, args=(self,)).start()
+    def isBusy(self):
+      return self._work_queue.unfinished()
 
     def submit(self, fn, *args, **kwargs):
         with self._shutdown_lock:
@@ -139,7 +122,6 @@ class ThreadPoolExecutor(_base.Executor):
 
             self._work_queue.put(w)
             self._adjust_thread_count()
-            self._activete()
 
             return f
     submit.__doc__ = _base.Executor.submit.__doc__
@@ -162,16 +144,17 @@ class ThreadPoolExecutor(_base.Executor):
                                  args=(weakref.ref(self, weakref_cb),
                                        self._work_queue))
             t.daemon = True
+            t.name = 'PoolExecutor#%d' % len(self._threads)
             t.start()
             self._threads.add(t)
             _threads_queues[t] = self._work_queue
-            print('\nPE: new thread created. Threads: %d' % len(self._threads))
+            #print('\nPE: new thread created. Threads: %d' % len(self._threads))
 
     def shutdown(self, wait=True, fast=False):
         # fast - is a flag for fast shutdown: before putting in queue the stopping
         # task (None) the queue will be cleared. It means that all already executed
         # tasks will be finished, but (probably) all tasks in queue (PENDING) will be
-        # cancelled via _WorkItem.future.cancel()
+        # canceled via _WorkItem.future.cancel()
         with self._shutdown_lock:
             self._shutdown = True
             if fast:

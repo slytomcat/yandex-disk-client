@@ -18,9 +18,9 @@
 #  along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 from os import remove, makedirs, getpid, geteuid, getenv, cpu_count
-from pyinotify import ProcessEvent, WatchManager, Notifier, ThreadedNotifier,\
+from pyinotify import ProcessEvent, WatchManager, Notifier, ThreadedNotifier, ExcludeFilter,\
                       IN_MODIFY, IN_DELETE, IN_CREATE, IN_MOVED_FROM, IN_MOVED_TO, IN_ATTRIB
-from threading import Thread, Event
+from threading import Thread, Event, enumerate
 from queue import Queue
 from PoolExecutor import ThreadPoolExecutor
 from Cloud import Cloud
@@ -28,54 +28,104 @@ from Cloud import Cloud
 class Disk(object):
   '''High-level Yandex.disk client interface.
      It can have following statuses:
-      - busy - when some activities are currntly performed
-      - idle - no activities are currntly performed
+      - busy - when some activities are currently performed
+      - idle - no activities are currently performed
       - none - not connected
       - no_net - network connection is not available
       - error - some error
   '''
   def __init__(self, user):
     self.user = user
+    self.path = '%s/' % self.user['path'].replace('~', osUserHome)
+    self.cloud = Cloud(self.user['auth'])
+    self.executor = ThreadPoolExecutor()
+    self.shutdown = False
+    self.EH = Thread(target=self._eventHandler)
+    self.EH.name = 'EventHandler'
+    self.watch = self._PathWatcher(self.path, self.user['exclude'])
+    self.EH.start()
+    #self.listener = XMPPListener('%s\00%s' % (user[login], user[auth]))
+    self.prevStatus = 'none'
     self.status = 'none'
     self.progress = ''
-    self.cloud = Cloud(self.user['auth'])
-    self.path = '%s/' % self.user['path'].replace('~', osUserHome)
-    self.watch = self._PathWatcher(self.path)
-    cpus = cpu_count()
-    self.executor = ThreadPoolExecutor((cpus if cpus else 1) * 5)
-    self.shutdown = Event()
-    self.handler = Thread(target=self._eventHandler)
-    self.handler.start()
-    #self.listener = XMPPListener('%s\00%s' % (user[login], user[auth]))
-    self.CDstatus = {}
-    self.updateCDstatus()
-    self.changed({'init'})
+    self.CDstatus = dict()
+    self.changes = {'init'}
+    self.statusEvent = Event()
+    self.statusEvent.set()
+    self.SW = Thread(target=self.updateCDstatus)
+    self.SW.name = 'StatusUpdater'
+    self.SW.start()
     if self.user.setdefault('start', True):
       self.connect()
+
+  def _setStatus(self, status):
+    if status != self.status:
+      self.prevStatus = self.status
+      self.status = status
+      self.statusEvent.set()
+
+  def updateCDstatus(self):
+    def updateProp(changes):
+      stat, res = self.cloud.getDiskInfo()
+      if stat:
+        total = res['total_space']
+        used = res['used_space']
+        trash = res['trash_size']
+      else:
+        total = '...'
+        used = '...'
+        trash = '...'
+      if self.CDstatus.get('total', False):
+        if ((self.CDstatus['used'] != used) or
+            (self.CDstatus['trash'] != trash) or
+            (self.CDstatus['total'] != total)):
+          changes.add('prop')
+      self.CDstatus['total'] = total
+      self.CDstatus['used'] = used
+      self.CDstatus['trash'] = trash
+
+    def updateLast(changes):
+      stat, res = self.cloud.getDiskInfo()
+      last = res if stat else []
+      if last != self.CDstatus.get('last', None):
+        changes.add('last')
+      self.CDstatus['last'] = last
+
+    timeout = None # 1
+    while not self.shutdown:
+      #print(timeout)
+      self.statusEvent.wait(timeout=timeout)
+      #if not self.statusEvent.is_set():
+      #  timeout = timeout if timeout > 9 else timeout + 2
+      #else:
+      #  timeout = 1
+      if self.prevStatus != self.status:
+        self.changes.add('stat')
+        if self.prevStatus == 'busy':
+          updateLast(self.changes)
+      if self.prevStatus != 'none':
+        updateProp(self.changes)
+      if self.changes:
+        self.changed(self.changes)
+      self.changes = set()
+      self.statusEvent.clear()
 
   def exit(self):
     if self.status != 'none':
       self.disconnect()
-    self.shutdown.set()
+    self.shutdown = True
+    self.watch.exit()
+    self.watch.put(None)
+    self.EH.join()
     self.executor.shutdown(wait=True)
-
-  def updateCDstatus(self):
-    stat = self.cloud.getDiskInfo()
-    if stat:
-      self.CDstatus['total'] = stat['total_space']
-      self.CDstatus['used'] = stat['used_space']
-      self.CDstatus['trash'] = stat['trash_size']
-    else:
-      self.CDstatus['total'] = '...'
-      self.CDstatus['used'] = '...'
-      self.CDstatus['trash'] = '...'
-    last = self.cloud.getDiskInfo()
-    self.CDstatus['last'] = last if last else []
+    self.statusEvent.set()
+    self.SW.join()
 
   def fullSync(self):
     '''
-    cSet = {for item.pathname in self.cloud.getFullList():}
-    lSet = {} # need recurcive list of local folder
+    cSet = {'%s\00%d' % i.pathnamefor i.pathname in self.cloud.getFullList():}
+
+    lSet = {} # need recurcive list of local folder - use glob
     for path in cSet - lSet:
       ft = self.executor.submit(self.cloud.download, (path, self.path + '/' + path))
       ft.add_done_callback(taskCB)
@@ -102,7 +152,9 @@ class Disk(object):
 
     def taskCB(ft):
       if ft.done():
-        print('\ndone:', ft.result())
+        print('\ndone:', ft.result(), self.executor.isBusy())
+      if not self.executor.isBusy():
+        self._setStatus('idle')
         #e = ft.exception()
         #if e is not None:
         #  print(e)
@@ -110,40 +162,40 @@ class Disk(object):
     def submit(task, args):
       ft = self.executor.submit(task, *args)
       ft.add_done_callback(taskCB)
-      print('submit %s%s' % (task, str(args)))
-
-    def localpath(path):
-      return path[len(self.path)+1:]
+      self._setStatus('busy')
+      print('submit %s%s' % (str(task)[14: 30], str(args)))
 
     plen = len(self.path)
-    while not self.shutdown.is_set():
+    while not self.shutdown:
       event = self.watch.get()
-      # make relative path from full path from event.pathname
-      event.path = event.pathname[plen: ]
-      ''' event.pathname - full path
-          event.path - relative path
-      '''
-      print(event)
-      if event.mask & (IN_MOVED_FROM | IN_MOVED_TO):
-        try:
-          event2 = self.watch.get(timeout=0.01)
-          event2.path = event2.pathname[plen: ]
-          print(event2)
-          if event.cookie == event2.cookie:
-            submit(self.cloud.move, (event.path, event2.path))
-          else:
+      if event is not None:
+        # make relative path from full path from event.pathname
+        event.path = event.pathname[plen: ]
+        ''' event.pathname - full path
+            event.path - relative path
+        '''
+        print('IN_Event: %s, path: %s' % (event.maskname, event.path))
+        if event.mask & (IN_MOVED_FROM | IN_MOVED_TO):
+          try:
+            event2 = self.watch.get(timeout=0.01)
+            event2.path = event2.pathname[plen: ]
+            print('Event: %s, path: %s' % (event2.maskname, event2.path))
+            if event.cookie == event2.cookie:
+              submit(self.cloud.move, (event.path, event2.path))
+            else:
+              moved(event)
+              moved(event2)
+          except:
             moved(event)
-            moved(event2)
-        except:
-          moved(event)
-      elif event.mask & (IN_CREATE):
-        new(event)
-      elif event.mask & (IN_DELETE):
-        submit(self.cloud.delete, (event.path,))
-      elif event.mask & IN_MODIFY:
-        submit(self.cloud.upload, (event.pathname, event.path))
-      elif event.mask & IN_ATTRIB:
-        submit(self.cloud.upload, (event.pathname, event.path))
+        elif event.mask & (IN_CREATE):
+          new(event)
+        elif event.mask & (IN_DELETE):
+          submit(self.cloud.delete, (event.path,))
+        elif event.mask & IN_MODIFY:
+          submit(self.cloud.upload, (event.pathname, event.path))
+        elif event.mask & IN_ATTRIB:
+          submit(self.cloud.upload, (event.pathname, event.path))
+    print('EH exit')
 
 
   class _PathWatcher(Queue):               # iNotify watcher for directory
@@ -152,37 +204,42 @@ class Disk(object):
     '''
     FLAGS = IN_MODIFY|IN_DELETE|IN_CREATE|IN_MOVED_FROM|IN_MOVED_TO  #|IN_ATTRIB
 
-    def __init__(self, path):
+    def __init__(self, path, ex = None):
 
       class _EH(ProcessEvent):
         def process_default(self, event):
           _handleEvent(event)
 
       Queue.__init__(self)
-      self._path = path + '/'
+      self._path = path
+      self.ex = ex or []
       _handleEvent = self.put
-      self._watchMngr = WatchManager()
-      self._iNotifier = ThreadedNotifier(self._watchMngr, _EH())
+      self._wm = WatchManager()
+      self._iNotifier = ThreadedNotifier(self._wm, _EH(), timeout=10)
       self._iNotifier.start()
 
 
     def start(self):
       # Add watch and start watching
-      self._watch = self._watchMngr.add_watch(self._path, self.FLAGS, rec=True)
+      excl = ExcludeFilter(['%s%s.*' % (self._path, p) for p in self.ex])
+
+      self._watch = self._wm.add_watch(self._path, self.FLAGS, exclude_filter=excl,
+                                       auto_add=True, rec=True, do_glob=False)
 
     def stop(self):
       # Remove watch and stop watching
-      self._watchMngr.rm_watch(self._watch.values())
-      #self._iNotifier.stop()
+      self._wm.rm_watch(self._watch[self._path]) #, rec=True)
+
+    def exit(self):
+      self._iNotifier.stop()
 
   def connect(self):
     '''Activate synchronizations with Yandex.disk'''
     if self.status == 'none':
+      print('connecting')
       self.watch.start()
       #self.listener.start()
-
-      self.status = 'idle'
-      self.changed({'stat'})
+      self._setStatus('idle')
       self.fullSync()
 
   def disconnect(self):
@@ -190,9 +247,7 @@ class Disk(object):
     if self.status != 'none':
       self.watch.stop()
       #self.listener.stop()
-
-      self.status = 'none'
-      self.changed({'stat'})
+      self._setStatus('none')
 
   def getStatus(self):
     '''Return the current disk status
@@ -232,19 +287,24 @@ class Disk(object):
     print('event: %s status: %s ' % (str(change), self.status))
 
 def appExit(msg=None):
-  from sys import exit as sysExit
-
+  print(enumerate())
   for disk in disks:
     disk.exit()
+  print('msg: %s' % msg)
+  print(enumerate())
+  input('exit')
   sysExit(msg)
 
 if __name__ == '__main__':
+  from sys import exit as sysExit
   from jconfig import Config
   from gettext import translation
   from time import sleep
   from OAuth import getToken, getLogin
-  from os.path import exists as pathExists, relpath as relativePath
+  from os.path import exists as pathExists
   from re import findall
+  from signal import signal, SIGTERM, SIGINT
+
 
   appName = 'yd-client'
   osUserHome = getenv("HOME")
@@ -298,6 +358,9 @@ if __name__ == '__main__':
         config['disks'][login] = {'login': login, 'auth': token, 'path': path, 'start': True,
                                   'ro': False, 'ow': False, 'exclude': []}
         config.save()
+
+  signal(SIGTERM, lambda _signo, _stack_frame: appExit('Killed'))
+  signal(SIGINT, lambda _signo, _stack_frame: appExit('CTRL-C Pressed'))
 
   while True:
     sleep(3)
