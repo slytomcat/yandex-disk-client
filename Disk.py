@@ -152,8 +152,8 @@ class Disk(object):
 
     def taskCB(ft):
       if ft.done():
-        print('\ndone:', ft.result(), self.executor.isBusy())
-      if not self.executor.isBusy():
+        print('\ndone:', ft.result(), self.executor.unfinished())
+      if not self.executor.unfinished():
         self._setStatus('idle')
         #e = ft.exception()
         #if e is not None:

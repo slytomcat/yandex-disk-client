@@ -109,7 +109,7 @@ class ThreadPoolExecutor(_base.Executor):
         self._shutdown = False
         self._shutdown_lock = threading.Lock()
 
-    def isBusy(self):
+    def unfinished(self):
       return self._work_queue.unfinished()
 
     def submit(self, fn, *args, **kwargs):
