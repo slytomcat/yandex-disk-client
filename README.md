@@ -11,6 +11,10 @@ jconfig.py - configuration object (dict | file in JSON) + tests - completed
 
 Cloud.py - wraper class for YD rest API + tests - completed
 
+PoolExecutor.py - modified concurrent.futures.ThreadPoolExecutor 
+   * added method unfinished() - the number of unfinished tasks (which are currently executed and wait in queue). It's required for executor status control (when unfinished returns 0 then executor is in the idle state).
+   * new working thread is created when number of existing threads is less than maximum allowed and if the number of unfinished tasks greater than number of threads.
+
 xmpp.py - some samples of xmpp client - draft
 
 Disk.py - primary YD client class skeleton - in progress
