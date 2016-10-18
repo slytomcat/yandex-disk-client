@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 #
 # Yandex.disk client engine
@@ -46,6 +47,7 @@ class Disk(object):
     self.executor = ThreadPoolExecutor()
     self.shutdown = False
     self.downloads = set()
+    self.error = false
     self.EH = Thread(target=self._eventHandler)
     self.EH.name = 'EventHandler'
     self.watch = self._PathWatcher(self.path,
@@ -157,8 +159,8 @@ class Disk(object):
 
 
   def fullSync(self):
-    ignore = set(self.watch.exclude)  # set of files that shouldn't be synchronized
-    # colud - local -> download
+    ignore = set(self.watch.exclude)  # set of files that shouldn't be synced or alredy in sync
+    # colud - local -> download from cloud
     # (cloud & local) and hashes are equal = ignore
     # (cloud & local) and hashes not equal -> decide upload/download depending on the update time
     for stat, items in self.cloud.getFullList(chunk=20):
@@ -191,7 +193,7 @@ class Disk(object):
                 f_st = file_info(path)      # follow symlink by default ???
                 l_t = strftime('%Y-%m-%dT%H:%M:%S', gmtime(f_st.st_mtime))
                 if l_t > c_t:
-                  # upload
+                  # upload (as file exists the dir exists too - no need to create dir in cloud)
                   self._submit(self.cloud.upload, (path, i['path']))
                   ignore.add(path)
                   ignore.add(p)
@@ -214,13 +216,13 @@ class Disk(object):
             self.downloads.add(path)            # store new dir in dowloads to avoud upload
             makedirs(path, exist_ok=True)
             ignore.add(path)
-    # (local - ignored) -> cloud
+    # (local - ignored) -> upload to cloud
     for root, dirs, files in walk(self.path):
       for d in dirs:
         d = path_join(root, d)
         if d not in ignore:
-          # directory have to be created before uploading a file in it
-          # Do it inline as it rather fast operation
+          # directory have to be created before start of uploading a file in it
+          # do it inline as it rather fast operation
           s, r = self.cloud.mkDir(relpath(d, start=self.path))
           print('done inline', s, r)
       for f in files:
