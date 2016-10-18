@@ -45,9 +45,11 @@ class Disk(object):
     self.cloud = Cloud(self.user['auth'])
     self.executor = ThreadPoolExecutor()
     self.shutdown = False
+    self.downloads = set()
     self.EH = Thread(target=self._eventHandler)
     self.EH.name = 'EventHandler'
-    self.watch = self._PathWatcher(self.path, self.user['exclude'])
+    self.watch = self._PathWatcher(self.path,
+                                   [path_join(self.path, e) for e in self.user['exclude']])
     self.EH.start()
     #self.listener = XMPPListener('%s\00%s' % (user[login], user[auth]))
     self.prevStatus = 'none'
@@ -134,12 +136,16 @@ class Disk(object):
     self.statusEvent.set()
     self.SW.join()
 
-  def submit(self, task, args):
+  def _submit(self, task, args):
 
     def taskCB(ft):
       res = ft.result()
       unf = self.executor.unfinished()
       print('Done: %s, %d unfinished' % (str(res), unf))
+      path = res[1]
+      if path:
+        # Remove downloaded file from downloads
+        self.downloads -= {path}
       if unf == 0:
         self._setStatus('idle')
 
@@ -151,9 +157,10 @@ class Disk(object):
 
 
   def fullSync(self):
-    ignore = set([path_join(self.path, e) for e in self.user['exclude']])
-    self.watch.stop()
-    # cloud -> local
+    ignore = set(self.watch.exclude)  # set of files that shouldn't be synchronized
+    # colud - local -> download
+    # (cloud & local) and hashes are equal = ignore
+    # (cloud & local) and hashes not equal -> decide upload/download depending on the update time
     for stat, items in self.cloud.getFullList(chunk=20):
       if stat:
         for i in items:
@@ -169,26 +176,27 @@ class Disk(object):
               except:
                 hh = ''
               if hh == i['sha256']:
+                # Cloud and local hashes are equal
                 ignore.add(path)
                 ignore.add(p)
                 continue
               else:
                 # Need to decide what to do: upload, download, or it is conflict.
                 # In order to find the conflict the 'modified' date-time
-                # from previous upload/downloadhave to be stored somewhere....
+                # from previous upload/download have to be stored somewhere.... Where to store it???
                 # Without this info the only two solutions are possible:
                 # - download if the cloud file newer than the local, or
                 # - upload if the local file newer than the cloud file.
-                c_t = i['modified'][:19]    # remove time zone as it is GMT (+00:00)
-                f_st = file_info(path)      # follow symlink by default
+                c_t = i['modified'][:19]    # remove time zone as it is always GMT (+00:00)
+                f_st = file_info(path)      # follow symlink by default ???
                 l_t = strftime('%Y-%m-%dT%H:%M:%S', gmtime(f_st.st_mtime))
                 if l_t > c_t:
                   # upload
-                  self.submit(self.cloud.upload, (path, i['path']))
+                  self._submit(self.cloud.upload, (path, i['path']))
                   ignore.add(path)
                   ignore.add(p)
                   continue
-                #else:  # download - it is perfomed below
+                #else:  # download - it is performed below
             else:  # it is existing directory
               # there is nothing to check for directories
               ignore.add(path)
@@ -196,11 +204,14 @@ class Disk(object):
           # the path have to be downloaded
           if i['type'] == 'file':
             if not pathExists(p):
+              self.downloads.add(p)             # store new dir in dowloads to avoud upload
               makedirs(p, exist_ok=True)
             ignore.add(p)
-            self.submit(self.cloud.download, (i['path'], path))
+            self.downloads.add(path)            # store downloaded file in dowloads to avoud upload
+            self._submit(self.cloud.download, (i['path'], path))
             ignore.add(path)
-          else:   # directory not exists
+          else:                                 # directory not exists
+            self.downloads.add(path)            # store new dir in dowloads to avoud upload
             makedirs(path, exist_ok=True)
             ignore.add(path)
     # (local - ignored) -> cloud
@@ -215,24 +226,28 @@ class Disk(object):
       for f in files:
         f = path_join(root, f)
         if f not in ignore:
-          self.submit(self.cloud.upload, (f, relpath(f, start=self.path)))
-    print('------------ done')
-    self.watch.start()
+          self._submit(self.cloud.upload, (f, relpath(f, start=self.path)))
 
   def _eventHandler(self):
 
     def new(event):
       if event.dir:
-        self.submit(self.cloud.mkDir, (event.path,))
-      else:
-        self.submit(self.cloud.upload,
-               (event.pathname, event.path))
+        if event.pathname in self.downloads:
+          # this dir was created localy within fullSync it ia already exists in the cloud
+          self.downloads -= {event.pathname}
+        else:
+          # create newly created local dir in the cloud
+          self._submit(self.cloud.mkDir, (event.path,))
+      else:   # it is file
+        # do not start upload for downloading file
+        if event.pathname not in self.downloads:
+          self._submit(self.cloud.upload, (event.pathname, event.path))
 
     def moved(event):
       if event.mask & IN_MOVED_TO:  # moved in = new
         new(event)
       else:  # moved out = deleted
-        self.submit(self.cloud.delete, (event.path,))
+        self._submit(self.cloud.delete, (event.path,))
 
     IN_MOVED = IN_MOVED_FROM | IN_MOVED_TO
     while not self.shutdown:
@@ -254,25 +269,30 @@ class Disk(object):
             except AttributeError:
               cookie = ''
             if event.cookie == cookie:
-              self.submit(self.cloud.move, (event.path, event2.path))
+              # greate! we've found the move operatin (file moved within the synced path)
+              self._submit(self.cloud.move, (event.path, event2.path))
               break
             else:
               moved(event)
               event = event2
               if not (event.mask & IN_MOVED):
-                break
+                break     # treat it as not IN_MOVE event
           except Empty:
             moved(event)
             break
-
-        if event.mask & (IN_CREATE):
+        # treat not IN_MOVE event
+        if event.mask & IN_CREATE:
           new(event)
-        elif event.mask & (IN_DELETE):
-          self.submit(self.cloud.delete, (event.path,))
+        elif event.mask & IN_DELETE:
+          self._submit(self.cloud.delete, (event.path,))
         elif event.mask & IN_MODIFY:
-          self.submit(self.cloud.upload, (event.pathname, event.path))
+          # do not start upload for downloading file
+          if event.pathname not in self.downloads:
+            self._submit(self.cloud.upload, (event.pathname, event.path))
         elif event.mask & IN_ATTRIB:
-          self.submit(self.cloud.upload, (event.pathname, event.path))
+          # do not start upload for downloading file
+          if event.pathname not in self.downloads:
+            self._submit(self.cloud.upload, (event.pathname, event.path))
 
   class _PathWatcher(Queue):               # iNotify watcher for directory
     '''
@@ -295,17 +315,17 @@ class Disk(object):
       self._iNotifier.start()
 
 
-    def start(self):
+    def start(self, exclude = None):
       # Add watch and start watching
-      excl = ExcludeFilter([path_join(self._path, p) for p in self.exclude])
+      self.exclude = exclude or self.exclude
+      excl = ExcludeFilter(self.exclude)
 
-      #self._watch = self._wm.add_watch(self._path, self.FLAGS, exclude_filter=excl,
-      #                                 auto_add=True, rec=True, do_glob=False)
+      self._watch = self._wm.add_watch(self._path, self.FLAGS, exclude_filter=excl,
+                                       auto_add=True, rec=True, do_glob=False)
 
     def stop(self):
       # Remove watch and stop watching
-      #self._wm.rm_watch(self._watch[self._path]) #, rec=True)
-      pass
+      self._wm.rm_watch(self._watch[self._path], rec=True)
 
     def exit(self):
       self._iNotifier.stop()
