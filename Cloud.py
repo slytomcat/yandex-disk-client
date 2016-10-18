@@ -44,20 +44,6 @@ class Cloud(object):
         }[method](self._expand(url, params or {}), headers=self._headers)
     return r.status_code , r.json() if r.text else ''
 
-  def _wait(self, res):
-    '''waits for asynchronous operation completion '''
-    while True:
-      sleep(0.5)  # reasonable pause between continuous requests
-      status, r = self._request((res['method'], res['href']))
-      if status == 200:
-        if r["status"] == "success":
-          return True
-        else:
-          continue
-      else:
-        print(status)
-        return False
-
   CMD = {'info':  (('GET',
                     'https://cloud-api.yandex.net/v1/disk'
                     '?fields=total_space%2Ctrash_size%2Cused_space%2Crevision'),
@@ -71,7 +57,7 @@ class Cloud(object):
                     '&fields=size%2Cmodified%2Ccreated%2Csha256%2Cpath%2Ctype%2Crevision'),
                    200),
          'list':  (('GET',
-                    'https://cloud-api.yandex.net/v1/disk/resources/files?limit=2147483647'),
+                    'https://cloud-api.yandex.net/v1/disk/resources/files?limit={1}&offset={2}'),
                    200),
          'mkdir': (('PUT',
                     'https://cloud-api.yandex.net/v1/disk/resources?path={1}'),
@@ -95,6 +81,20 @@ class Cloud(object):
                     'https://cloud-api.yandex.net/v1/disk/resources/download?path={1}'),
                    200)}
 
+  def _wait(self, res, name):
+    '''waits for asynchronous operation completion '''
+    while True:
+      sleep(0.5)  # reasonable pause between continuous requests
+      status, r = self._request((res['method'], res['href']))
+      if status == 200:
+        if r["status"] == "success":
+          return True
+        else:
+          continue
+      else:
+        print(status)
+        return '%s : %s' % (str(status), name)
+
   def getDiskInfo(self):
     '''Receives cloud disk status information'''
     req, code = self.CMD['info']
@@ -102,7 +102,7 @@ class Cloud(object):
     if status == code:
       return True, res
     else:
-      return False, status
+      return False, '%s : %s' % (str(status), name)
 
   def getLast(self):
     '''Receives 10 last synchronized items'''
@@ -111,7 +111,7 @@ class Cloud(object):
     if status == code:
       return True, [item['path'].replace('disk:/', '') for item in res['items']]
     else:
-      return False, status
+      return False, '%s : %s' % (str(status), name)
 
   def getResource(self, path):
     req, code = self.CMD['res']
@@ -120,84 +120,102 @@ class Cloud(object):
       res['path'] = res['path'].replace('disk:/', '')
       return True, res
     else:
-      return False, status
+      return False, '%s : %s' % (str(status), name)
 
-  def getFullList(self):
+  def getFullList(self, chunk=None):
     req, code = self.CMD['list']
-    status, res = self._request(req)
-    if status == code:
-      # filter fields
-      return True, [{key: i[key] if key != 'path' else i[key].replace('disk:/', '')
-                     for key in ['size', 'modified', 'created', 'sha256', 'path', 'type']
-                    } for i in res['items']]
-    else:
-      return False, status
+    offset = 0
+    chunk = 20 if chunk is None else chunk
+    while True:
+      status, res = self._request(req, {'1': str(chunk), '2': str(offset)}) #'2147483647', '2': '0'})
+      if status == code:
+        l = len(res['items'])
+        if l:
+          # filter fields
+          yield True, [{key: i[key] if key != 'path' else i[key].replace('disk:/', '')
+                         for key in ['size', 'modified', 'created', 'sha256', 'path', 'type']
+                        } for i in res['items']]
+          if l < chunk:
+            break
+          else:
+            offset += chunk
+        else:
+          break
+      else:
+        return False, '%s : %s' % (str(status), name)
 
   def mkDir(self, path):
     req, code = self.CMD['mkdir']
+    name = 'mkdir %s' % path
     status, res = self._request(req, {'1': path})
     if status == code:
-      return True, ''
+      return True, name
     else:
-      return False, status
+      return False, '%s : %s' % (str(status), name)
 
   def delete(self, path, perm=False):
     perm = 'true' if perm else 'false'
     req, code = self.CMD['del']
+    name = 'del %s' % path
     status, res = self._request(req, {'1': path, '2': perm})
     if status == code:
-      return True, ''
+      return True, name
     elif status == 202:
-      return self._wait(res)
+      return self._wait(res, name)
     else:
-      return False, status
+      return False, '%s : %s' % (str(status), name)
 
   def trash(self):
     req, code = self.CMD['trash']
+    name = 'trash'
     status, res = self._request(req)
     if status == code:
-      return True, ''
+      return True, name
     elif status == 202:
-      return self._wait(res)
+      return self._wait(res, name)
     else:
-      return False, status
+      return False, '%s : %s' % (str(status), name)
 
   def move(self, pathfrom, pathto):
     req, code = self.CMD['move']
+    name = 'move %s to %s' % (pathfrom, pathto)
     status, res = self._request(req, {'1': pathfrom, '2': pathto})
     if status == code:
-      return True, ''
+      return True, name
     elif status == 202:
-      return self._wait(res)
+      return self._wait(res, name)
     else:
-      return False, status
+      return False, '%s : %s' % (str(status), name)
 
   def copy(self, pathfrom, pathto):
     req, code = self.CMD['copy']
+    name = 'copy %s to %s' % (pathfrom, pathto)
     status, res = self._request(req, {'1': pathfrom, '2': pathto})
     if status == code:
-      return True, ''
+      return True, name
     elif status == 202:
-      return self._wait(res)
+      return self._wait(res, name)
     else:
-      return False, status
+      return False, '%s : %s' % (str(status), name)
 
   def upload(self, lpath, path, ow=True):
     ow = 'true' if ow else 'false'
     req, code = self.CMD['up']
+    name = 'up %s' % path
     status, res = self._request(req, {'1': path,'2': ow})
     if status == code:
       try:
         with open(lpath, 'rb') as f:
           r = requests.put(res['href'], data = f)
         if r.status_code == 201:
-          return True, ''
+          return True, name
       except FileNotFoundError:
         status = 'FileNotFoundError'
-    return False, status
+    return False, '%s : %s' % (str(status), name)
 
   def download(self, path, lpath):
     req, code = self.CMD['down']
+    name = 'down %s' % path
     status, res = self._request(req, {'1': path})
     if status == code:
       r = requests.get(res['href'], stream=True)
@@ -205,10 +223,10 @@ class Cloud(object):
         for chunk in r.iter_content(1024):
           f.write(chunk)
       if r.status_code == 200:
-        return True, ''
+        return True, name
       else:
         status = r.status_code
-    return False, status
+    return False, '%s : %s' % (str(status), name)
 
 if __name__ == '__main__':
   from re import findall
@@ -220,6 +238,7 @@ if __name__ == '__main__':
     token = findall(r'devtoken: (.*)', f.read())[0].strip()
 
   c = Cloud(token)
+  '''
   print('\nDisk Info:', c.getDiskInfo(), '\n')
   print('\nNew dir:', c.mkDir('testdir'), '\n')
   print('\nMove dir:', c.move('testdir', 'newtestdir'), '\n')
@@ -233,10 +252,14 @@ if __name__ == '__main__':
   print('\nEmpty trash:', c.trash(), '\n')
   print('\nDisk Info:', c.getDiskInfo(), '\n')
   print('\nLast:', c.getLast(), '\n')
-  print('\nFull list:', c.getFullList(), '\n')
+  print('\nFull list:', end='')
+  for ch in c.getFullList(chunk=5):
+    print(ch)
+  '''
   print('\nUpload:', c.upload('README.md', 'README_.md'), '\n')
+  '''
   print('\nDownload:', c.download('README_.md', 'README_.md'), '\n')
   print('\nDelete file:', c.delete('README_.md'), '\n')
-
+  '''
 
 

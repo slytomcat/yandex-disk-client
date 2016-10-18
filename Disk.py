@@ -17,13 +17,18 @@
 #  You should have received a copy of the GNU General Public License
 #  along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-from os import remove, makedirs, getpid, geteuid, getenv, cpu_count
+from os import remove, makedirs, getpid, geteuid, getenv, cpu_count, walk, stat as file_info
+from os.path import join as path_join, expanduser, relpath, split as path_split
 from pyinotify import ProcessEvent, WatchManager, Notifier, ThreadedNotifier, ExcludeFilter,\
                       IN_MODIFY, IN_DELETE, IN_CREATE, IN_MOVED_FROM, IN_MOVED_TO, IN_ATTRIB
 from threading import Thread, Event, enumerate
-from queue import Queue
+from queue import Queue, Empty
 from PoolExecutor import ThreadPoolExecutor
 from Cloud import Cloud
+from time import time, gmtime, strftime
+from hashlib import sha256
+from glob import iglob
+
 
 class Disk(object):
   '''High-level Yandex.disk client interface.
@@ -36,7 +41,7 @@ class Disk(object):
   '''
   def __init__(self, user):
     self.user = user
-    self.path = '%s/' % self.user['path'].replace('~', osUserHome)
+    self.path = expanduser(self.user['path'])
     self.cloud = Cloud(self.user['auth'])
     self.executor = ThreadPoolExecutor()
     self.shutdown = False
@@ -80,18 +85,21 @@ class Disk(object):
             (self.CDstatus['trash'] != trash) or
             (self.CDstatus['total'] != total)):
           changes.add('prop')
+        else:
+          changes.add('prop')
       self.CDstatus['total'] = total
       self.CDstatus['used'] = used
       self.CDstatus['trash'] = trash
 
     def updateLast(changes):
-      stat, res = self.cloud.getDiskInfo()
+      stat, res = self.cloud.getLast()
       last = res if stat else []
       if last != self.CDstatus.get('last', None):
         changes.add('last')
       self.CDstatus['last'] = last
 
     timeout = None # 1
+    stime = time()
     while not self.shutdown:
       #print(timeout)
       self.statusEvent.wait(timeout=timeout)
@@ -101,10 +109,15 @@ class Disk(object):
       #  timeout = 1
       if self.prevStatus != self.status:
         self.changes.add('stat')
+        if self.status == 'busy':
+          stime = time()
         if self.prevStatus == 'busy':
+          print('Finished in %s sec.' % (time() - stime))
+          updateProp(self.changes)
           updateLast(self.changes)
-      if self.prevStatus != 'none':
+      if self.prevStatus == 'none':
         updateProp(self.changes)
+        updateLast(self.changes)
       if self.changes:
         self.changed(self.changes)
       self.changes = set()
@@ -121,82 +134,145 @@ class Disk(object):
     self.statusEvent.set()
     self.SW.join()
 
-  def fullSync(self):
-    '''
-    cSet = {'%s\00%d' % i.pathnamefor i.pathname in self.cloud.getFullList():}
+  def submit(self, task, args):
 
-    lSet = {} # need recurcive list of local folder - use glob
-    for path in cSet - lSet:
-      ft = self.executor.submit(self.cloud.download, (path, self.path + '/' + path))
-      ft.add_done_callback(taskCB)
-    for path in lSetc - cSet:
-      ft = self.executor.submit(self.cloud.upload, (self.path + '/' + path, path))
-      ft.add_done_callback(taskCB)
-    '''
-    pass
+    def taskCB(ft):
+      res = ft.result()
+      unf = self.executor.unfinished()
+      print('Done: %s, %d unfinished' % (str(res), unf))
+      if unf == 0:
+        self._setStatus('idle')
+
+    ft = self.executor.submit(task, *args)
+    ft.add_done_callback(taskCB)
+    if self.status != 'busy':
+      self._setStatus('busy')
+    print('submit %s %s' % (findall(r'Cloud\.\w*', str(task))[0] , str(args)))
+
+
+  def fullSync(self):
+    ignore = set([path_join(self.path, e) for e in self.user['exclude']])
+    self.watch.stop()
+    # cloud -> local
+    for stat, items in self.cloud.getFullList(chunk=20):
+      if stat:
+        for i in items:
+          path = path_join(self.path, i['path'])
+          if path in ignore:
+            continue
+          p, _ = path_split(path)
+          if pathExists(path):
+            if i['type'] == 'file':
+              try:
+                with open(path, 'rb') as f:
+                  hh = sha256(f.read()).hexdigest()
+              except:
+                hh = ''
+              if hh == i['sha256']:
+                ignore.add(path)
+                ignore.add(p)
+                continue
+              else:
+                # Need to decide what to do: upload, download, or it is conflict.
+                # In order to find the conflict the 'modified' date-time
+                # from previous upload/downloadhave to be stored somewhere....
+                # Without this info the only two solutions are possible:
+                # - download if the cloud file newer than the local, or
+                # - upload if the local file newer than the cloud file.
+                c_t = i['modified'][:19]    # remove time zone as it is GMT (+00:00)
+                f_st = file_info(path)      # follow symlink by default
+                l_t = strftime('%Y-%m-%dT%H:%M:%S', gmtime(f_st.st_mtime))
+                if l_t > c_t:
+                  # upload
+                  self.submit(self.cloud.upload, (path, i['path']))
+                  ignore.add(path)
+                  ignore.add(p)
+                  continue
+                #else:  # download - it is perfomed below
+            else:  # it is existing directory
+              # there is nothing to check for directories
+              ignore.add(path)
+              continue
+          # the path have to be downloaded
+          if i['type'] == 'file':
+            if not pathExists(p):
+              makedirs(p, exist_ok=True)
+            ignore.add(p)
+            self.submit(self.cloud.download, (i['path'], path))
+            ignore.add(path)
+          else:   # directory not exists
+            makedirs(path, exist_ok=True)
+            ignore.add(path)
+    # (local - ignored) -> cloud
+    for root, dirs, files in walk(self.path):
+      for d in dirs:
+        d = path_join(root, d)
+        if d not in ignore:
+          # directory have to be created before uploading a file in it
+          # Do it inline as it rather fast operation
+          s, r = self.cloud.mkDir(relpath(d, start=self.path))
+          print('done inline', s, r)
+      for f in files:
+        f = path_join(root, f)
+        if f not in ignore:
+          self.submit(self.cloud.upload, (f, relpath(f, start=self.path)))
+    print('------------ done')
+    self.watch.start()
 
   def _eventHandler(self):
 
     def new(event):
       if event.dir:
-        submit(self.cloud.mkDir, (event.path,))
+        self.submit(self.cloud.mkDir, (event.path,))
       else:
-        submit(self.cloud.upload,
+        self.submit(self.cloud.upload,
                (event.pathname, event.path))
 
     def moved(event):
       if event.mask & IN_MOVED_TO:  # moved in = new
         new(event)
       else:  # moved out = deleted
-        submit(self.cloud.delete, (event.path,))
+        self.submit(self.cloud.delete, (event.path,))
 
-    def taskCB(ft):
-      if ft.done():
-        print('\ndone:', ft.result(), self.executor.unfinished())
-      if not self.executor.unfinished():
-        self._setStatus('idle')
-        #e = ft.exception()
-        #if e is not None:
-        #  print(e)
-
-    def submit(task, args):
-      ft = self.executor.submit(task, *args)
-      ft.add_done_callback(taskCB)
-      self._setStatus('busy')
-      print('submit %s%s' % (str(task)[14: 30], str(args)))
-
-    plen = len(self.path)
+    IN_MOVED = IN_MOVED_FROM | IN_MOVED_TO
     while not self.shutdown:
       event = self.watch.get()
       if event is not None:
         # make relative path from full path from event.pathname
-        event.path = event.pathname[plen: ]
+        event.path = relpath(event.pathname, start=self.path)
         ''' event.pathname - full path
             event.path - relative path
         '''
         print('IN_Event: %s, path: %s' % (event.maskname, event.path))
-        if event.mask & (IN_MOVED_FROM | IN_MOVED_TO):
+        while event.mask & IN_MOVED:
           try:
-            event2 = self.watch.get(timeout=0.01)
-            event2.path = event2.pathname[plen: ]
+            event2 = self.watch.get(timeout=0.1)
+            event2.path = relpath(event2.pathname, start=self.path)
             print('Event: %s, path: %s' % (event2.maskname, event2.path))
-            if event.cookie == event2.cookie:
-              submit(self.cloud.move, (event.path, event2.path))
+            try:
+              cookie = event2.cookie
+            except AttributeError:
+              cookie = ''
+            if event.cookie == cookie:
+              self.submit(self.cloud.move, (event.path, event2.path))
+              break
             else:
               moved(event)
-              moved(event2)
-          except:
+              event = event2
+              if not (event.mask & IN_MOVED):
+                break
+          except Empty:
             moved(event)
-        elif event.mask & (IN_CREATE):
+            break
+
+        if event.mask & (IN_CREATE):
           new(event)
         elif event.mask & (IN_DELETE):
-          submit(self.cloud.delete, (event.path,))
+          self.submit(self.cloud.delete, (event.path,))
         elif event.mask & IN_MODIFY:
-          submit(self.cloud.upload, (event.pathname, event.path))
+          self.submit(self.cloud.upload, (event.pathname, event.path))
         elif event.mask & IN_ATTRIB:
-          submit(self.cloud.upload, (event.pathname, event.path))
-    print('EH exit')
-
+          self.submit(self.cloud.upload, (event.pathname, event.path))
 
   class _PathWatcher(Queue):               # iNotify watcher for directory
     '''
@@ -204,7 +280,7 @@ class Disk(object):
     '''
     FLAGS = IN_MODIFY|IN_DELETE|IN_CREATE|IN_MOVED_FROM|IN_MOVED_TO  #|IN_ATTRIB
 
-    def __init__(self, path, ex = None):
+    def __init__(self, path, exclude = None):
 
       class _EH(ProcessEvent):
         def process_default(self, event):
@@ -212,7 +288,7 @@ class Disk(object):
 
       Queue.__init__(self)
       self._path = path
-      self.ex = ex or []
+      self.exclude = exclude or []
       _handleEvent = self.put
       self._wm = WatchManager()
       self._iNotifier = ThreadedNotifier(self._wm, _EH(), timeout=10)
@@ -221,14 +297,15 @@ class Disk(object):
 
     def start(self):
       # Add watch and start watching
-      excl = ExcludeFilter(['%s%s.*' % (self._path, p) for p in self.ex])
+      excl = ExcludeFilter([path_join(self._path, p) for p in self.exclude])
 
-      self._watch = self._wm.add_watch(self._path, self.FLAGS, exclude_filter=excl,
-                                       auto_add=True, rec=True, do_glob=False)
+      #self._watch = self._wm.add_watch(self._path, self.FLAGS, exclude_filter=excl,
+      #                                 auto_add=True, rec=True, do_glob=False)
 
     def stop(self):
       # Remove watch and stop watching
-      self._wm.rm_watch(self._watch[self._path]) #, rec=True)
+      #self._wm.rm_watch(self._watch[self._path]) #, rec=True)
+      pass
 
     def exit(self):
       self._iNotifier.stop()
@@ -280,11 +357,19 @@ class Disk(object):
         - 'status'    when synchronization status changed
         - 'progress'  when synchronization progress changed
         - 'last'      when last synchronized items changed
-        - 'props'     when user properties changed (total disk size or used space)
+        - 'prop'      when user properties changed (total disk size or used space)
         - 'init'      when synchronization initialized
     '''
     # log status change as debug message
-    print('event: %s status: %s ' % (str(change), self.status))
+    print('status: %s  path: %s  event: %s' % (self.status, self.user['path'], str(change)))
+    for e in change:
+      if e == 'last':
+        print(self.CDstatus['last'])
+      elif e == 'prop':
+        s = ''
+        for t in ['total', 'used', 'trash']:
+          s += '%s: %s ' % (t, self.CDstatus[t])
+        print(s)
 
 def appExit(msg=None):
   print(enumerate())

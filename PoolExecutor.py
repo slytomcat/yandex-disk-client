@@ -39,6 +39,14 @@ class Queue(_Queue):
     with self.mutex:
       return self.unfinished_tasks
 
+  '''
+  # I don't really understand what the usage of this ....
+  # WARNING: bad idea to take a private value from imported package
+  def waiters_count(self):
+    with self.all_tasks_done:
+      return len(self.not_empty._waiters)
+  '''
+
 def _python_exit():
     global _shutdown
     _shutdown = True
@@ -57,17 +65,17 @@ class _WorkItem(object):
         self.args = args
         self.kwargs = kwargs
 
-    def run(self, reportDone):
+    def run(self, task_done):
         if not self.future.set_running_or_notify_cancel():
             return
 
         try:
             result = self.fn(*self.args, **self.kwargs)
         except BaseException as e:
-            reportDone()
+            task_done()
             self.future.set_exception(e)
         else:
-            reportDone()
+            task_done()
             self.future.set_result(result)
 
 def _worker(executor_reference, work_queue):
