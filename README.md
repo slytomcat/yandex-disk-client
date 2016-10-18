@@ -9,12 +9,14 @@ OAuth.py - Yandex OAuth authorisation via verification code (CLI/GUI) + tests - 
 
 jconfig.py - configuration object (dict | file in JSON) + tests - completed
 
-Cloud.py - wraper class for YD rest API + tests - completed
+Cloud.py - wraper class for YD rest API + tests - completed (but still is beeing amended)
 
-PoolExecutor.py - modified concurrent.futures.ThreadPoolExecutor 
+PoolExecutor.py - modified concurrent.futures.ThreadPoolExecutor - completed
    * added method unfinished() - the number of unfinished tasks (which are currently executed and wait in queue). It's required for executor status control (when unfinished returns 0 then executor is in the idle state).
    * new working thread is created when number of existing threads is less than maximum allowed and if the number of unfinished tasks greater than number of threads.
 
 xmpp.py - some samples of xmpp client - draft
 
-Disk.py - primary YD client class skeleton - in progress
+pyinotify.py - fixed version (see https://github.com/seb-m/pyinotify/pull/135)
+
+Disk.py - primary YD client class - in progress
