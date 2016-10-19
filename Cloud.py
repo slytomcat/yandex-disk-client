@@ -244,6 +244,7 @@ if __name__ == '__main__':
     return token
 
   c = Cloud(getToken())
+  '''
 
   print('\nDisk Info:', c.getDiskInfo(), '\n')
   print('\nNew dir:', c.mkDir('testdir'), '\n')
@@ -254,9 +255,11 @@ if __name__ == '__main__':
   print('\nCopy big Dir:', c.copy('Music', 'MusicTest'), '\n')
   print('\nMove big Dir:', c.move('MusicTest', 'MusicTest2'), '\n')
   print('\nDelete big Dir:', c.delete('MusicTest2'), '\n')
+  '''
   print('\nDisk Info:', c.getDiskInfo(), '\n')
   print('\nEmpty trash:', c.trash(), '\n')
   print('\nDisk Info:', c.getDiskInfo(), '\n')
+  '''
   print('\nLast:', c.getLast(), '\n')
   print('\nFull list:', end='')
   for ch in c.getFullList(chunk=5):
@@ -265,6 +268,6 @@ if __name__ == '__main__':
   print('\nDownload:', c.download('README_.md', 'README_.md'), '\n')
   print('\nDelete file:', c.delete('README_.md'), '\n')
   '''
-  '''
+
 
 

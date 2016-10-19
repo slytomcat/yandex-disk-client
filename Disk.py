@@ -47,7 +47,7 @@ class Disk(object):
     self.executor = ThreadPoolExecutor()
     self.shutdown = False
     self.downloads = set()
-    self.error = false
+    self.error = False
     self.EH = Thread(target=self._eventHandler)
     self.EH.name = 'EventHandler'
     self.watch = self._PathWatcher(self.path,
@@ -61,7 +61,7 @@ class Disk(object):
     self.changes = {'init'}
     self.statusEvent = Event()
     self.statusEvent.set()
-    self.SW = Thread(target=self.updateCDstatus)
+    self.SW = Thread(target=self._updateCDstatus)
     self.SW.name = 'StatusUpdater'
     self.SW.start()
     if self.user.setdefault('start', True):
@@ -73,35 +73,35 @@ class Disk(object):
       self.status = status
       self.statusEvent.set()
 
-  def updateCDstatus(self):
-    def updateProp(changes):
-      stat, res = self.cloud.getDiskInfo()
-      if stat:
-        total = res['total_space']
-        used = res['used_space']
-        trash = res['trash_size']
+  def updateInfo(self):
+    # get disk statistics
+    stat, res = self.cloud.getDiskInfo()
+    if stat:
+      total = res['total_space']
+      used = res['used_space']
+      trash = res['trash_size']
+    else:
+      total = '...'
+      used = '...'
+      trash = '...'
+    if self.CDstatus.get('total', False):
+      if ((self.CDstatus['used'] != used) or
+          (self.CDstatus['trash'] != trash) or
+          (self.CDstatus['total'] != total)):
+        self.changes.add('prop')
       else:
-        total = '...'
-        used = '...'
-        trash = '...'
-      if self.CDstatus.get('total', False):
-        if ((self.CDstatus['used'] != used) or
-            (self.CDstatus['trash'] != trash) or
-            (self.CDstatus['total'] != total)):
-          changes.add('prop')
-        else:
-          changes.add('prop')
-      self.CDstatus['total'] = total
-      self.CDstatus['used'] = used
-      self.CDstatus['trash'] = trash
+        self.changes.add('prop')
+    self.CDstatus['total'] = total
+    self.CDstatus['used'] = used
+    self.CDstatus['trash'] = trash
+    # get last synchronized list
+    stat, res = self.cloud.getLast()
+    last = res if stat else []
+    if last != self.CDstatus.get('last', None):
+      self.changes.add('last')
+    self.CDstatus['last'] = last
 
-    def updateLast(changes):
-      stat, res = self.cloud.getLast()
-      last = res if stat else []
-      if last != self.CDstatus.get('last', None):
-        changes.add('last')
-      self.CDstatus['last'] = last
-
+  def _updateCDstatus(self):
     timeout = None # 1
     stime = time()
     while not self.shutdown:
@@ -117,26 +117,61 @@ class Disk(object):
           stime = time()
         if self.prevStatus == 'busy':
           print('Finished in %s sec.' % (time() - stime))
-          updateProp(self.changes)
-          updateLast(self.changes)
-      if self.prevStatus == 'none':
-        updateProp(self.changes)
-        updateLast(self.changes)
+          self.updateInfo()
+        if self.prevStatus == 'error':
+          self.fullSync()
+      #if self.prevStatus == 'none':
+      self.updateInfo()
       if self.changes:
         self.changed(self.changes)
       self.changes = set()
       self.statusEvent.clear()
 
-  def exit(self):
-    if self.status != 'none':
-      self.disconnect()
-    self.shutdown = True
-    self.watch.exit()
-    self.watch.put(None)
-    self.EH.join()
-    self.executor.shutdown(wait=True)
-    self.statusEvent.set()
-    self.SW.join()
+  def getStatus(self):
+    '''Return the current disk status
+       The returned status dict contain the following items:
+         { 'status': <current status (one of: 'none', 'idle', 'busy', 'error', 'no_net')>,
+           'progress': <current activity progress (it si actual only for 'busy' status)>,
+           'login': <Cloud disk user login>
+           'total': <total cloud disk size>,
+           'used': <used cloud disk space>,
+           'trash': <trash size>,
+           'path': <synchronized local path>,
+           'last': <up to 10 last synchronized items>
+         }
+    '''
+    self.updateInfo()
+    return {'status': self.status,
+            'progress': self.progress,
+            'login': self.user['login'],
+            'total': self.CDstatus['total'],
+            'used': self.CDstatus['used'],
+            'trash': self.CDstatus['trash'],
+            'last': self.CDstatus['last'],
+            'path': self.user['path']
+           }
+
+  def changed(self, change={}):
+    '''Class method for catch the client status changes.
+       It can be redefined in super class to organize the change event flow to the recipient.
+       It has change parameter that is the set of change events set of the client.
+       Client changed event can be:
+        - 'status'    when synchronization status changed
+        - 'progress'  when synchronization progress changed
+        - 'last'      when last synchronized items changed
+        - 'prop'      when user properties changed (total disk size or used space)
+        - 'init'      when synchronization initialized
+    '''
+    # log status change as debug message
+    print('status: %s  path: %s  event: %s' % (self.status, self.user['path'], str(change)))
+    for e in change:
+      if e == 'last':
+        print(self.CDstatus['last'])
+      elif e == 'prop':
+        s = ''
+        for t in ['total', 'used', 'trash']:
+          s += '%s: %s ' % (t, self.CDstatus[t])
+        print(s)
 
   def _submit(self, task, args):
 
@@ -144,10 +179,12 @@ class Disk(object):
       res = ft.result()
       unf = self.executor.unfinished()
       print('Done: %s, %d unfinished' % (str(res), unf))
-      path = res[1]
+      stat, path = res
       if path:
         # Remove downloaded file from downloads
         self.downloads -= {path}
+      if not stat and self.status != 'error':
+        self._setStatus('error')
       if unf == 0:
         self._setStatus('idle')
 
@@ -157,12 +194,12 @@ class Disk(object):
       self._setStatus('busy')
     print('submit %s %s' % (findall(r'Cloud\.\w*', str(task))[0] , str(args)))
 
-
   def fullSync(self):
     ignore = set(self.watch.exclude)  # set of files that shouldn't be synced or alredy in sync
-    # colud - local -> download from cloud
+    # colud - local -> download from cloud ... or  delete from cloud???
     # (cloud & local) and hashes are equal = ignore
-    # (cloud & local) and hashes not equal -> decide upload/download depending on the update time
+    # (cloud & local) and hashes not equal -> decide upload/download depending on the update
+    # time... or it is a conflict ???
     for stat, items in self.cloud.getFullList(chunk=20):
       if stat:
         for i in items:
@@ -203,7 +240,10 @@ class Disk(object):
               # there is nothing to check for directories
               ignore.add(path)
               continue
-          # the path have to be downloaded
+          # the file has to be downloaded or.... deleted from the cloud when local file
+          # was deleted and this deletion was not catched by active client (client was not
+          # connected to cloud). But in order to have a reasons for such decision the
+          # history info is required.
           if i['type'] == 'file':
             if not pathExists(p):
               self.downloads.add(p)             # store new dir in dowloads to avoud upload
@@ -260,12 +300,10 @@ class Disk(object):
         ''' event.pathname - full path
             event.path - relative path
         '''
-        print('IN_Event: %s, path: %s' % (event.maskname, event.path))
         while event.mask & IN_MOVED:
           try:
             event2 = self.watch.get(timeout=0.1)
             event2.path = relpath(event2.pathname, start=self.path)
-            print('Event: %s, path: %s' % (event2.maskname, event2.path))
             try:
               cookie = event2.cookie
             except AttributeError:
@@ -348,50 +386,20 @@ class Disk(object):
       #self.listener.stop()
       self._setStatus('none')
 
-  def getStatus(self):
-    '''Return the current disk status
-       The returned status dict contain the following items:
-         { 'status': <current status (one of: 'none', 'idle', 'busy', 'error', 'no_net')>,
-           'progress': <current activity progress (it si actual only for 'busy' status)>,
-           'login': <Cloud disk user login>
-           'total': <total cloud disk size>,
-           'used': <used cloud disk space>,
-           'trash': <trash size>,
-           'path': <synchronized local path>,
-           'last': <up to 10 last synchronized items>
-         }
-    '''
-    return {'status': self.status,
-            'progress': self.progress,
-            'login': self.user['login'],
-            'total': self.CDstatus['total'],
-            'used': self.CDstatus['used'],
-            'trash': self.CDstatus['trash'],
-            'last': self.CDstatus['last'],
-            'path': self.user['path']
-           }
+  def trash(self):
+    stat, _ = self.cloud.trash()
+    return stat
 
-  def changed(self, change={}):
-    '''Class method for catch the client status changes.
-       It can be redefined in super class to organize the change event flow to the recipient.
-       It has change parameter that is the set of change events set of the client.
-       Client changed event can be:
-        - 'status'    when synchronization status changed
-        - 'progress'  when synchronization progress changed
-        - 'last'      when last synchronized items changed
-        - 'prop'      when user properties changed (total disk size or used space)
-        - 'init'      when synchronization initialized
-    '''
-    # log status change as debug message
-    print('status: %s  path: %s  event: %s' % (self.status, self.user['path'], str(change)))
-    for e in change:
-      if e == 'last':
-        print(self.CDstatus['last'])
-      elif e == 'prop':
-        s = ''
-        for t in ['total', 'used', 'trash']:
-          s += '%s: %s ' % (t, self.CDstatus[t])
-        print(s)
+  def exit(self):
+    if self.status != 'none':
+      self.disconnect()
+    self.shutdown = True
+    self.watch.exit()
+    self.watch.put(None)
+    self.EH.join()
+    self.executor.shutdown(wait=True)
+    self.statusEvent.set()
+    self.SW.join()
 
 def appExit(msg=None):
   print(enumerate())
@@ -447,9 +455,6 @@ if __name__ == '__main__':
       if input(_('Do you want to configure new account (Y/n):')).lower() not in ('', 'y'):
         appExit(_('Exit.'))
       else:
-        with open('OAuth.info', 'rt') as f:
-          buf = f.read()
-        fullpath = ''
         while not pathExists(fullpath):
           path = input('Enter the path to local folder '
                        'which will by synchronized with cloud disk. (Default: ~/Yandex.Disk):')
@@ -459,8 +464,7 @@ if __name__ == '__main__':
               makedirs(fullpath)
             except:
               print('Error: Incorrect path specified.')
-        token = getToken(findall(r'AppID: (.*)', buf)[0].strip(),
-                         findall(r'AppSecret: (.*)', buf)[0].strip())
+        token = getToken('389b4420fc6e4f509cda3b533ca0f3fd', '5145f7a99e7943c28659d769752f6dae')
         login = getLogin(token)
         config['disks'][login] = {'login': login, 'auth': token, 'path': path, 'start': True,
                                   'ro': False, 'ow': False, 'exclude': []}
@@ -469,8 +473,18 @@ if __name__ == '__main__':
   signal(SIGTERM, lambda _signo, _stack_frame: appExit('Killed'))
   signal(SIGINT, lambda _signo, _stack_frame: appExit('CTRL-C Pressed'))
 
+  print('Commands:\n с - connect\n d - disconnect\n s - get status\n t - clear trash\n'
+        ' e - exit\n ')
   while True:
-    sleep(3)
-    #s = disks[0].getStatus()
-    #print('login: %s path: %s total/used/trash: %d/%d/%d' %
-    #      (s['login'], s['path'], s['total'], s['used'],s['trash']), end='\r')
+    cmd = input()
+    if cmd == 'd':
+      disks[0].disconnect()
+    elif cmd == 'c':
+      disks[0].connect()
+    elif cmd == 't':
+      print(disks[0].trash())
+    elif cmd == 's':
+      print(disks[0].getStatus())
+    elif cmd == 'e':
+      appExit()
+
