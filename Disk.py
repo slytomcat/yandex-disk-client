@@ -198,7 +198,8 @@ class Disk(object):
     print('submit %s %s' % (findall(r'Cloud\.\w*', str(task))[0] , str(args)))
 
   def fullSync(self):
-    ignore = set(self.watch.exclude)  # set of files that shouldn't be synced or alredy in sync
+    ignore = set()  # set of files that shouldn't be synced or alredy in sync
+    exclude = set(self.watch.exclude)
     # colud - local -> download from cloud ... or  delete from cloud???
     # (cloud & local) and hashes are equal = ignore
     # (cloud & local) and hashes not equal -> decide upload/download depending on the update
@@ -207,9 +208,9 @@ class Disk(object):
       if stat:
         for i in items:
           path = path_join(self.path, i['path'])
-          if path in ignore:
-            continue
           p, _ = path_split(path)
+          if p in exclude:
+            continue
           if pathExists(path):
             if i['type'] == 'file':
               try:
@@ -261,9 +262,16 @@ class Disk(object):
             ignore.add(path)
     # (local - ignored) -> upload to cloud
     for root, dirs, files in walk(self.path):
+      ex = False
+      for p in exclude:
+        if root[:len(p)] == p:
+          ex = True
+          break
+      if ex:
+        continue
       for d in dirs:
         d = path_join(root, d)
-        if d not in ignore:
+        if d not in ignore | exclude:
           # directory have to be created before start of uploading a file in it
           # do it inline as it rather fast operation
           s, r = self.cloud.mkDir(relpath(d, start=self.path))
@@ -360,7 +368,7 @@ class Disk(object):
 
     def start(self, exclude = None):
       # Add watch and start watching
-      self.exclude = exclude or self.exclude
+      #self.exclude = exclude or self.exclude
       excl = ExcludeFilter(self.exclude)
 
       self._watch = self._wm.add_watch(self._path, self.FLAGS, exclude_filter=excl,
