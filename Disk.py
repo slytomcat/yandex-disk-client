@@ -43,27 +43,33 @@ class Disk(object):
   def __init__(self, user):
     self.user = user
     self.path = expanduser(self.user['path'])
+    self.history = path_join(self.path, '.yandex-disk-client')
+    #if not pathExists(self.history):
+    #  makedirs(self.history)
+    #history = path_join(self.history, 'history.json')
+    #
     self.cloud = Cloud(self.user['auth'])
     self.executor = ThreadPoolExecutor()
     self.shutdown = False
     self.downloads = set()
-    self.error = False
     self.EH = Thread(target=self._eventHandler)
     self.EH.name = 'EventHandler'
     self.watch = self._PathWatcher(self.path,
                                    [path_join(self.path, e) for e in self.user['exclude']])
     self.EH.start()
     #self.listener = XMPPListener('%s\00%s' % (user[login], user[auth]))
+    # Status treatment staff
     self.prevStatus = 'none'
     self.status = 'none'
+    self.error = False
     self.progress = ''
     self.CDstatus = dict()
     self.changes = {'init'}
-    self.statusEvent = Event()
-    self.statusEvent.set()
+    self.statusQueue = Queue()
     self.SW = Thread(target=self._updateCDstatus)
     self.SW.name = 'StatusUpdater'
     self.SW.start()
+    # connect if it required
     if self.user.setdefault('start', True):
       self.connect()
 
@@ -71,7 +77,7 @@ class Disk(object):
     if status != self.status:
       self.prevStatus = self.status
       self.status = status
-      self.statusEvent.set()
+      self.statusQueue.put((status, self.prevStatus))
 
   def updateInfo(self):
     # get disk statistics
@@ -102,30 +108,27 @@ class Disk(object):
     self.CDstatus['last'] = last
 
   def _updateCDstatus(self):
-    timeout = None # 1
     stime = time()
     while not self.shutdown:
-      #print(timeout)
-      self.statusEvent.wait(timeout=timeout)
-      #if not self.statusEvent.is_set():
-      #  timeout = timeout if timeout > 9 else timeout + 2
-      #else:
-      #  timeout = 1
-      if self.prevStatus != self.status:
-        self.changes.add('stat')
-        if self.status == 'busy':
-          stime = time()
-        if self.prevStatus == 'busy':
-          print('Finished in %s sec.' % (time() - stime))
-          self.updateInfo()
-        if self.prevStatus == 'error':
-          self.fullSync()
-      #if self.prevStatus == 'none':
+      status, prevStatus = self.statusQueue.get()
+      self.changes.add('stat')
+      if status == 'busy':
+        stime = time()
+      if prevStatus == 'busy':
+        print('Finished in %s sec.' % (time() - stime))
+        self.updateInfo()
+      sync = False
+      if self.error and status == 'idle':
+        print('ERROR WAS DETECTED!!!!!!! --> fillSync')
+        sync = True
+        self.error = False
       self.updateInfo()
       if self.changes:
-        self.changed(self.changes)
-      self.changes = set()
-      self.statusEvent.clear()
+        changes = self.changes
+        self.changes = set()
+        self.changed(changes)
+      if sync:
+        self.fullSync()
 
   def getStatus(self):
     '''Return the current disk status
@@ -178,13 +181,13 @@ class Disk(object):
     def taskCB(ft):
       res = ft.result()
       unf = self.executor.unfinished()
-      print('Done: %s, %d unfinished' % (str(res), unf))
       stat, path = res
+      if not stat:
+        self.error = True
+      print('Done: %s, %d unfinished. Error: %s' % (str(res), unf, str(self.error)))
       if path:
         # Remove downloaded file from downloads
         self.downloads -= {path}
-      if not stat and self.status != 'error':
-        self._setStatus('error')
       if unf == 0:
         self._setStatus('idle')
 
@@ -398,7 +401,7 @@ class Disk(object):
     self.watch.put(None)
     self.EH.join()
     self.executor.shutdown(wait=True)
-    self.statusEvent.set()
+    self._setStatus('exit')
     self.SW.join()
 
 def appExit(msg=None):
@@ -422,9 +425,9 @@ if __name__ == '__main__':
 
 
   appName = 'yd-client'
-  osUserHome = getenv("HOME")
-  confHome = osUserHome + '/.config/' + appName
-  config = Config(confHome + '/client.conf')
+  confHome = expanduser(path_join('~', '.config', appName))
+  config = Config(path_join(confHome, 'client.conf'))
+  print(confHome, path_join(confHome, 'client.conf'))
   if not config.loaded:
     try:
       makedirs(confHome)
@@ -441,34 +444,36 @@ if __name__ == '__main__':
   disks = []
   while True:
     for user in config['disks'].values():
-      fullpath = user['path'].replace('~', osUserHome)
-      if not pathExists(fullpath):
+      path = expanduser(user['path'])
+      if not pathExists(path):
         try:
-          makedirs(fullpath)
+          makedirs(path)
         except:
-          appExit(_("Error: Can't access the local folder %s" % fullpath))
+          appExit(_("Error: Can't access the local folder %s" % path))
       disks.append(Disk(user))
     if disks:
       break
     else:
+      path = ''
       print(_('No accounts configured'))
       if input(_('Do you want to configure new account (Y/n):')).lower() not in ('', 'y'):
         appExit(_('Exit.'))
       else:
-        while not pathExists(fullpath):
-          path = input('Enter the path to local folder '
-                       'which will by synchronized with cloud disk. (Default: ~/Yandex.Disk):')
-          fullpath = path.replace('~', osUserHome)
-          if not pathExists(fullpath):
+        while not pathExists(path):
+          path = input(_('Enter the path to local folder '
+                         'which will by synchronized with cloud disk. (Default: ~/YandexDisk):'))
+          path = expanduser(path)
+          if not pathExists(path):
             try:
-              makedirs(fullpath)
+              makedirs(path)
             except:
-              print('Error: Incorrect path specified.')
+              print('Error: Incorrect path specified (no access or wrong path name).')
         token = getToken('389b4420fc6e4f509cda3b533ca0f3fd', '5145f7a99e7943c28659d769752f6dae')
         login = getLogin(token)
         config['disks'][login] = {'login': login, 'auth': token, 'path': path, 'start': True,
                                   'ro': False, 'ow': False, 'exclude': []}
         config.save()
+
 
   signal(SIGTERM, lambda _signo, _stack_frame: appExit('Killed'))
   signal(SIGINT, lambda _signo, _stack_frame: appExit('CTRL-C Pressed'))
