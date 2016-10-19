@@ -43,11 +43,6 @@ class Disk(object):
   def __init__(self, user):
     self.user = user
     self.path = expanduser(self.user['path'])
-    self.history = path_join(self.path, '.yandex-disk-client')
-    #if not pathExists(self.history):
-    #  makedirs(self.history)
-    #history = path_join(self.history, 'history.json')
-    #
     self.cloud = Cloud(self.user['auth'])
     self.executor = ThreadPoolExecutor()
     self.shutdown = False
@@ -55,7 +50,8 @@ class Disk(object):
     self.EH = Thread(target=self._eventHandler)
     self.EH.name = 'EventHandler'
     self.watch = self._PathWatcher(self.path,
-                                   [path_join(self.path, e) for e in self.user['exclude']])
+                                   [path_join(self.path, e)
+                                     for e in self.user['exclude'] + ['.yandex-disk-client']])
     self.EH.start()
     #self.listener = XMPPListener('%s\00%s' % (user[login], user[auth]))
     # Status treatment staff
@@ -66,9 +62,9 @@ class Disk(object):
     self.CDstatus = dict()
     self.changes = {'init'}
     self.statusQueue = Queue()
-    self.SW = Thread(target=self._updateCDstatus)
-    self.SW.name = 'StatusUpdater'
-    self.SW.start()
+    self.SU = Thread(target=self._statusUpdater)
+    self.SU.name = 'StatusUpdater'
+    self.SU.start()
     # connect if it required
     if self.user.setdefault('start', True):
       self.connect()
@@ -107,7 +103,7 @@ class Disk(object):
       self.changes.add('last')
     self.CDstatus['last'] = last
 
-  def _updateCDstatus(self):
+  def _statusUpdater(self):     # Thread that reacts on status changes
     stime = time()
     while not self.shutdown:
       status, prevStatus = self.statusQueue.get()
@@ -281,7 +277,7 @@ class Disk(object):
         if f not in ignore:
           self._submit(self.cloud.upload, (f, relpath(f, start=self.path)))
 
-  def _eventHandler(self):
+  def _eventHandler(self):      # Thread that handles iNotify watcher events
 
     def new(event):
       if event.dir:
@@ -345,7 +341,7 @@ class Disk(object):
           if event.pathname not in self.downloads:
             self._submit(self.cloud.upload, (event.pathname, event.path))
 
-  class _PathWatcher(Queue):               # iNotify watcher for directory
+  class _PathWatcher(Queue):    # iNotify watcher for directory
     '''
     iNotify watcher object for monitor of changes in directory.
     '''
@@ -384,7 +380,6 @@ class Disk(object):
   def connect(self):
     '''Activate synchronizations with Yandex.disk'''
     if self.status == 'none':
-      print('connecting')
       self.watch.start()
       #self.listener.start()
       self._setStatus('idle')
@@ -410,7 +405,7 @@ class Disk(object):
     self.EH.join()
     self.executor.shutdown(wait=True)
     self._setStatus('exit')
-    self.SW.join()
+    self.SU.join()
 
 def appExit(msg=None):
   print(enumerate())
@@ -433,14 +428,11 @@ if __name__ == '__main__':
 
 
   appName = 'yd-client'
+  # read or make new configuration file
   confHome = expanduser(path_join('~', '.config', appName))
   config = Config(path_join(confHome, 'client.conf'))
-  print(confHome, path_join(confHome, 'client.conf'))
   if not config.loaded:
-    try:
-      makedirs(confHome)
-    except FileExistsError:
-      pass
+    makedirs(confHome, exist_ok=True)
     config.changed = True
   config.setdefault('type', 'std')
   config.setdefault('disks', {})
@@ -455,7 +447,7 @@ if __name__ == '__main__':
       path = expanduser(user['path'])
       if not pathExists(path):
         try:
-          makedirs(path)
+          makedirs(path, exist_ok=True)
         except:
           appExit(_("Error: Can't access the local folder %s" % path))
       disks.append(Disk(user))
@@ -473,9 +465,9 @@ if __name__ == '__main__':
           path = expanduser(path)
           if not pathExists(path):
             try:
-              makedirs(path)
+              makedirs(path, exist_ok=True)
             except:
-              print('Error: Incorrect path specified (no access or wrong path name).')
+              print('Error: Incorrect folder path specified (no access or wrong path name).')
         token = getToken('389b4420fc6e4f509cda3b533ca0f3fd', '5145f7a99e7943c28659d769752f6dae')
         login = getLogin(token)
         config['disks'][login] = {'login': login, 'auth': token, 'path': path, 'start': True,
@@ -486,6 +478,7 @@ if __name__ == '__main__':
   signal(SIGTERM, lambda _signo, _stack_frame: appExit('Killed'))
   signal(SIGINT, lambda _signo, _stack_frame: appExit('CTRL-C Pressed'))
 
+  # main thread.
   print('Commands:\n с - connect\n d - disconnect\n s - get status\n t - clear trash\n'
         ' e - exit\n ')
   while True:
@@ -500,4 +493,3 @@ if __name__ == '__main__':
       print(disks[0].getStatus())
     elif cmd == 'e':
       appExit()
-
