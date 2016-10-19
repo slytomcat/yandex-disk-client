@@ -47,6 +47,7 @@ class Disk(object):
     self.executor = ThreadPoolExecutor()
     self.shutdown = False
     self.downloads = set()
+    self.data = Config(path_join(self.path, dataFolder, 'hist.data'))
     self.EH = Thread(target=self._eventHandler)
     self.EH.name = 'EventHandler'
     self.watch = self._PathWatcher(self.path,
@@ -59,7 +60,7 @@ class Disk(object):
     self.status = 'none'
     self.error = False
     self.progress = ''
-    self.CDstatus = dict()
+    self.cloudStatus = dict()
     self.changes = {'init'}
     self.statusQueue = Queue()
     self.SU = Thread(target=self._statusUpdater)
@@ -86,22 +87,22 @@ class Disk(object):
       total = '...'
       used = '...'
       trash = '...'
-    if self.CDstatus.get('total', False):
-      if ((self.CDstatus['used'] != used) or
-          (self.CDstatus['trash'] != trash) or
-          (self.CDstatus['total'] != total)):
+    if self.cloudStatus.get('total', False):
+      if ((self.cloudStatus['used'] != used) or
+          (self.cloudStatus['trash'] != trash) or
+          (self.cloudStatus['total'] != total)):
         self.changes.add('prop')
       else:
         self.changes.add('prop')
-    self.CDstatus['total'] = total
-    self.CDstatus['used'] = used
-    self.CDstatus['trash'] = trash
+    self.cloudStatus['total'] = total
+    self.cloudStatus['used'] = used
+    self.cloudStatus['trash'] = trash
     # get last synchronized list
     stat, res = self.cloud.getLast()
     last = res if stat else []
-    if last != self.CDstatus.get('last', None):
+    if last != self.cloudStatus.get('last', None):
       self.changes.add('last')
-    self.CDstatus['last'] = last
+    self.cloudStatus['last'] = last
 
   def _statusUpdater(self):     # Thread that reacts on status changes
     stime = time()
@@ -143,10 +144,10 @@ class Disk(object):
     return {'status': self.status,
             'progress': self.progress,
             'login': self.user['login'],
-            'total': self.CDstatus['total'],
-            'used': self.CDstatus['used'],
-            'trash': self.CDstatus['trash'],
-            'last': self.CDstatus['last'],
+            'total': self.cloudStatus['total'],
+            'used': self.cloudStatus['used'],
+            'trash': self.cloudStatus['trash'],
+            'last': self.cloudStatus['last'],
             'path': self.user['path']
            }
 
@@ -165,11 +166,11 @@ class Disk(object):
     print('status: %s  path: %s  event: %s' % (self.status, self.user['path'], str(change)))
     for e in change:
       if e == 'last':
-        print(self.CDstatus['last'])
+        print(self.cloudStatus['last'])
       elif e == 'prop':
         s = ''
         for t in ['total', 'used', 'trash']:
-          s += '%s: %s ' % (t, self.CDstatus[t])
+          s += '%s: %s ' % (t, self.cloudStatus[t])
         print(s)
 
   def _submit(self, task, args):
@@ -196,6 +197,7 @@ class Disk(object):
   def fullSync(self):
     ignore = set()  # set of files that shouldn't be synced or alredy in sync
     exclude = set(self.watch.exclude)
+    data = dict()
     # colud - local -> download from cloud ... or  delete from cloud???
     # (cloud & local) and hashes are equal = ignore
     # (cloud & local) and hashes not equal -> decide upload/download depending on the update
@@ -229,11 +231,15 @@ class Disk(object):
                 c_t = i['modified'][:19]    # remove time zone as it is always GMT (+00:00)
                 f_st = file_info(path)      # follow symlink by default ???
                 l_t = strftime('%Y-%m-%dT%H:%M:%S', gmtime(f_st.st_mtime))
-                if l_t > c_t:
+                h_t = self.data.get(path, l_t)
+                if l_t != h_t and c_t != h_t:     # conflict
+                  print('conflict'):
+                elif l_t > c_t:
                   # upload (as file exists the dir exists too - no need to create dir in cloud)
                   self._submit(self.cloud.upload, (path, i['path']))
                   ignore.add(path)
                   ignore.add(p)
+                  data[path] = l_t
                   continue
                 #else:  # download - it is performed below
             else:  # it is existing directory
@@ -244,6 +250,7 @@ class Disk(object):
           # was deleted and this deletion was not catched by active client (client was not
           # connected to cloud). But in order to have a reasons for such decision the
           # history info is required.
+
           if i['type'] == 'file':
             if not pathExists(p):
               self.downloads.add(p)             # store new dir in dowloads to avoud upload
@@ -428,6 +435,7 @@ if __name__ == '__main__':
 
 
   appName = 'yd-client'
+  dataFolder = '.yandex-disk-client'
   # read or make new configuration file
   confHome = expanduser(path_join('~', '.config', appName))
   config = Config(path_join(confHome, 'client.conf'))
@@ -447,7 +455,7 @@ if __name__ == '__main__':
       path = expanduser(user['path'])
       if not pathExists(path):
         try:
-          makedirs(path, exist_ok=True)
+          makedirs(path_join(path, dataFolder), exist_ok=True)
         except:
           appExit(_("Error: Can't access the local folder %s" % path))
       disks.append(Disk(user))
@@ -465,7 +473,7 @@ if __name__ == '__main__':
           path = expanduser(path)
           if not pathExists(path):
             try:
-              makedirs(path, exist_ok=True)
+              makedirs(path_join(path, dataFolder), exist_ok=True)
             except:
               print('Error: Incorrect folder path specified (no access or wrong path name).')
         token = getToken('389b4420fc6e4f509cda3b533ca0f3fd', '5145f7a99e7943c28659d769752f6dae')
@@ -473,7 +481,6 @@ if __name__ == '__main__':
         config['disks'][login] = {'login': login, 'auth': token, 'path': path, 'start': True,
                                   'ro': False, 'ow': False, 'exclude': []}
         config.save()
-
 
   signal(SIGTERM, lambda _signo, _stack_frame: appExit('Killed'))
   signal(SIGINT, lambda _signo, _stack_frame: appExit('CTRL-C Pressed'))
