@@ -264,7 +264,7 @@ class Disk(object):
                 l_t = strftime('%Y-%m-%dT%H:%M:%S', gmtime(f_st.st_mtime))
                 h_t = self.data.get(path, l_t)
                 if l_t != h_t and c_t != h_t:     # conflict
-                  print('conflict'):
+                  print('conflict')
                 elif l_t > c_t:
                   # upload (as file exists the dir exists too - no need to create dir in cloud)
                   self._submit(self.cloud.upload, (path, i['path']))
