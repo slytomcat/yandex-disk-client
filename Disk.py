@@ -74,19 +74,16 @@ class Disk(object):
   def __init__(self, user):
     self.user = user
     self.path = expanduser(self.user['path'])
-    self.history = path_join(self.path, '.yandex-disk-client')
-    #if not pathExists(self.history):
-    #  makedirs(self.history)
-    #history = path_join(self.history, 'history.json')
-    #
     self.cloud = Cloud(self.user['auth'])
     self.executor = ThreadPoolExecutor()
     self.shutdown = False
     self.downloads = set()
+    self.data = Config(path_join(self.path, dataFolder, 'hist.data'))
     self.EH = Thread(target=self._eventHandler)
     self.EH.name = 'EventHandler'
     self.watch = self._PathWatcher(self.path,
-                                   [path_join(self.path, e) for e in self.user['exclude']])
+                                   [path_join(self.path, e)
+                                     for e in self.user['exclude'] + ['.yandex-disk-client']])
     self.EH.start()
     #self.listener = XMPPListener('%s\00%s' % (user[login], user[auth]))
     # Status treatment staff
@@ -94,12 +91,12 @@ class Disk(object):
     self.status = 'none'
     self.error = False
     self.progress = ''
-    self.CDstatus = dict()
+    self.cloudStatus = dict()
     self.changes = {'init'}
     self.statusQueue = Queue()
-    self.SW = Thread(target=self._updateCDstatus)
-    self.SW.name = 'StatusUpdater'
-    self.SW.start()
+    self.SU = Thread(target=self._statusUpdater)
+    self.SU.name = 'StatusUpdater'
+    self.SU.start()
     # connect if it required
     if self.user.setdefault('start', True):
       self.connect()
@@ -121,24 +118,24 @@ class Disk(object):
       total = '...'
       used = '...'
       trash = '...'
-    if self.CDstatus.get('total', False):
-      if ((self.CDstatus['used'] != used) or
-          (self.CDstatus['trash'] != trash) or
-          (self.CDstatus['total'] != total)):
+    if self.cloudStatus.get('total', False):
+      if ((self.cloudStatus['used'] != used) or
+          (self.cloudStatus['trash'] != trash) or
+          (self.cloudStatus['total'] != total)):
         self.changes.add('prop')
       else:
         self.changes.add('prop')
-    self.CDstatus['total'] = total
-    self.CDstatus['used'] = used
-    self.CDstatus['trash'] = trash
+    self.cloudStatus['total'] = total
+    self.cloudStatus['used'] = used
+    self.cloudStatus['trash'] = trash
     # get last synchronized list
     stat, res = self.cloud.getLast()
     last = res if stat else []
-    if last != self.CDstatus.get('last', None):
+    if last != self.cloudStatus.get('last', None):
       self.changes.add('last')
-    self.CDstatus['last'] = last
+    self.cloudStatus['last'] = last
 
-  def _updateCDstatus(self):
+  def _statusUpdater(self):     # Thread that reacts on status changes
     stime = time()
     while not self.shutdown:
       status, prevStatus = self.statusQueue.get()
@@ -178,10 +175,10 @@ class Disk(object):
     return {'status': self.status,
             'progress': self.progress,
             'login': self.user['login'],
-            'total': self.CDstatus['total'],
-            'used': self.CDstatus['used'],
-            'trash': self.CDstatus['trash'],
-            'last': self.CDstatus['last'],
+            'total': self.cloudStatus['total'],
+            'used': self.cloudStatus['used'],
+            'trash': self.cloudStatus['trash'],
+            'last': self.cloudStatus['last'],
             'path': self.user['path']
            }
 
@@ -200,11 +197,11 @@ class Disk(object):
     print('status: %s  path: %s  event: %s' % (self.status, self.user['path'], str(change)))
     for e in change:
       if e == 'last':
-        print(self.CDstatus['last'])
+        print(self.cloudStatus['last'])
       elif e == 'prop':
         s = ''
         for t in ['total', 'used', 'trash']:
-          s += '%s: %s ' % (t, self.CDstatus[t])
+          s += '%s: %s ' % (t, self.cloudStatus[t])
         print(s)
 
   def _submit(self, task, args):
@@ -231,6 +228,7 @@ class Disk(object):
   def fullSync(self):
     ignore = set()  # set of files that shouldn't be synced or alredy in sync
     exclude = set(self.watch.exclude)
+    data = dict()
     # colud - local -> download from cloud ... or  delete from cloud???
     # (cloud & local) and hashes are equal = ignore
     # (cloud & local) and hashes not equal -> decide upload/download depending on the update
@@ -264,11 +262,15 @@ class Disk(object):
                 c_t = i['modified'][:19]    # remove time zone as it is always GMT (+00:00)
                 f_st = file_info(path)      # follow symlink by default ???
                 l_t = strftime('%Y-%m-%dT%H:%M:%S', gmtime(f_st.st_mtime))
-                if l_t > c_t:
+                h_t = self.data.get(path, l_t)
+                if l_t != h_t and c_t != h_t:     # conflict
+                  print('conflict'):
+                elif l_t > c_t:
                   # upload (as file exists the dir exists too - no need to create dir in cloud)
                   self._submit(self.cloud.upload, (path, i['path']))
                   ignore.add(path)
                   ignore.add(p)
+                  data[path] = l_t
                   continue
                 #else:  # download - it is performed below
             else:  # it is existing directory
@@ -279,6 +281,7 @@ class Disk(object):
           # was deleted and this deletion was not catched by active client (client was not
           # connected to cloud). But in order to have a reasons for such decision the
           # history info is required.
+
           if i['type'] == 'file':
             if not pathExists(p):
               self.downloads.add(p)             # store new dir in dowloads to avoud upload
@@ -312,7 +315,7 @@ class Disk(object):
         if f not in ignore:
           self._submit(self.cloud.upload, (f, relpath(f, start=self.path)))
 
-  def _eventHandler(self):
+  def _eventHandler(self):      # Thread that handles iNotify watcher events
 
     def new(event):
       if event.dir:
@@ -376,7 +379,7 @@ class Disk(object):
           if event.pathname not in self.downloads:
             self._submit(self.cloud.upload, (event.pathname, event.path))
 
-  class _PathWatcher(Queue):               # iNotify watcher for directory
+  class _PathWatcher(Queue):    # iNotify watcher for directory
     '''
     iNotify watcher object for monitor of changes in directory.
     '''
@@ -415,7 +418,6 @@ class Disk(object):
   def connect(self):
     '''Activate synchronizations with Yandex.disk'''
     if self.status == 'none':
-      print('connecting')
       self.watch.start()
       #self.listener.start()
       self._setStatus('idle')
@@ -441,7 +443,7 @@ class Disk(object):
     self.EH.join()
     self.executor.shutdown(wait=True)
     self._setStatus('exit')
-    self.SW.join()
+    self.SU.join()
 
 def appExit(msg=None):
   print(enumerate())
@@ -464,14 +466,12 @@ if __name__ == '__main__':
 
 
   appName = 'yd-client'
+  dataFolder = '.yandex-disk-client'
+  # read or make new configuration file
   confHome = expanduser(path_join('~', '.config', appName))
   config = Config(path_join(confHome, 'client.conf'))
-  print(confHome, path_join(confHome, 'client.conf'))
   if not config.loaded:
-    try:
-      makedirs(confHome)
-    except FileExistsError:
-      pass
+    makedirs(confHome, exist_ok=True)
     config.changed = True
   config.setdefault('type', 'std')
   config.setdefault('disks', {})
@@ -486,7 +486,7 @@ if __name__ == '__main__':
       path = expanduser(user['path'])
       if not pathExists(path):
         try:
-          makedirs(path)
+          makedirs(path_join(path, dataFolder), exist_ok=True)
         except:
           appExit(_("Error: Can't access the local folder %s" % path))
       disks.append(Disk(user))
@@ -504,19 +504,19 @@ if __name__ == '__main__':
           path = expanduser(path)
           if not pathExists(path):
             try:
-              makedirs(path)
+              makedirs(path_join(path, dataFolder), exist_ok=True)
             except:
-              print('Error: Incorrect path specified (no access or wrong path name).')
+              print('Error: Incorrect folder path specified (no access or wrong path name).')
         token = getToken('389b4420fc6e4f509cda3b533ca0f3fd', '5145f7a99e7943c28659d769752f6dae')
         login = getLogin(token)
         config['disks'][login] = {'login': login, 'auth': token, 'path': path, 'start': True,
                                   'ro': False, 'ow': False, 'exclude': []}
         config.save()
 
-
   signal(SIGTERM, lambda _signo, _stack_frame: appExit('Killed'))
   signal(SIGINT, lambda _signo, _stack_frame: appExit('CTRL-C Pressed'))
 
+  # main thread.
   print('Commands:\n с - connect\n d - disconnect\n s - get status\n t - clear trash\n'
         ' e - exit\n ')
   while True:
@@ -531,4 +531,3 @@ if __name__ == '__main__':
       print(disks[0].getStatus())
     elif cmd == 'e':
       appExit()
-
