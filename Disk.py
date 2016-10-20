@@ -25,11 +25,42 @@ from pyinotify import ProcessEvent, WatchManager, Notifier, ThreadedNotifier, Ex
 from threading import Thread, Event, enumerate
 from queue import Queue, Empty
 from PoolExecutor import ThreadPoolExecutor
-from Cloud import Cloud
+from Cloud import Cloud as _Cloud
 from time import time, gmtime, strftime
 from hashlib import sha256
 from glob import iglob
+from tempfile import NamedTemporaryFile as tempFile
+from shutil import move as fileMove
 
+class Cloud(_Cloud):    # redefined cloud class for implement some application level logic
+  def getFullList(self, chunk=None):  # getFullList is a generator that yields file list by chunks
+    offset = 0
+    chunk = chunk or 20
+    while True:
+      status, res = _Cloud.getFullList(self, chunk, offset)
+      if status:
+        l = len(res)
+        if l:
+          yield True, res
+          if l < chunk:
+            break
+          else:
+            offset += chunk
+        else:
+          break
+      else:
+        return status, res
+
+  def download(self, path, lpath):    # download via temporary file to make it in transaction manner
+    with tempFile(suffix='.yandex-disk-client', delete=False) as f:
+      temp = f.name
+    status, res = _Cloud.download(self, path, temp)
+    if status:
+      try:
+        fileMove(temp, lpath)
+      except:
+        status = False
+    return status, res
 
 class Disk(object):
   '''High-level Yandex.disk client interface.
@@ -184,7 +215,7 @@ class Disk(object):
       stat, path = res
       if not stat:
         self.error = True
-      print('Done: %s, %d unfinished. Error: %s' % (str(res), unf, str(self.error)))
+      print('Done: %s, %d unfinished' % (str(res), unf))
       if path:
         # Remove downloaded file from downloads
         self.downloads -= {path}

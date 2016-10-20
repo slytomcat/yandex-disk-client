@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 #
-#  Cloud - cloud manipulation class
+#  Cloud - low level yanex.disk REST API wraper
 #
 #  Copyright 2016 Sly_tom_cat <slytomcat@mail.ru>
 #
@@ -125,28 +125,18 @@ class Cloud(object):
       print('Resource %s returned %d' % (path, status))
       return False, path
 
-  def getFullList(self, chunk=None):
+  def getFullList(self, chunk=None, offset=None):
     req, code = self.CMD['list']
-    offset = 0
-    chunk = 20 if chunk is None else chunk
-    while True:
-      status, res = self._request(req, {'1': str(chunk), '2': str(offset)}) #'2147483647', '2': '0'})
-      if status == code:
-        l = len(res['items'])
-        if l:
-          # filter fields
-          yield True, [{key: i[key] if key != 'path' else i[key].replace('disk:/', '')
-                         for key in ['size', 'modified', 'created', 'sha256', 'path', 'type']
-                        } for i in res['items']]
-          if l < chunk:
-            break
-          else:
-            offset += chunk
-        else:
-          break
-      else:
-        print('List returned %d' % status)
-        return False, ''
+    offset = offset or 0
+    chunk = chunk or 20
+    status, res = self._request(req, {'1': str(chunk), '2': str(offset)}) #'2147483647', '2': '0'})
+    if status == code:
+      return True, [{key: i[key] if key != 'path' else i[key].replace('disk:/', '')
+                     for key in ['size', 'modified', 'created', 'sha256', 'path', 'type']
+                    } for i in res['items']]
+    else:
+      print('List returned %d' % status)
+      return False, ''
 
   def mkDir(self, path):
     req, code = self.CMD['mkdir']
