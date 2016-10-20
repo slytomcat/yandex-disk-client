@@ -33,6 +33,15 @@ from tempfile import NamedTemporaryFile as tempFile
 from shutil import move as fileMove
 
 class Cloud(_Cloud):    # redefined cloud class for implement some application level logic
+  ''' - all paths are absolute paths only (download/upload by 1 parameter - absolute path)
+      - getFullList converter to generator that yields fill list by chunks paths
+      - download is performed through the temporary file
+  '''
+  def __init__(self, token, hdata, path):
+    self.data = Config(hdata)
+    self.path = path
+    _Cloud.__init__(self, token)
+
   def getFullList(self, chunk=None):  # getFullList is a generator that yields file list by chunks
     offset = 0
     chunk = chunk or 20
@@ -41,7 +50,11 @@ class Cloud(_Cloud):    # redefined cloud class for implement some application l
       if status:
         l = len(res)
         if l:
-          yield True, res
+          yield True, [{'path': path_join(self.path, i['path']),
+                        'modified': i['modified'],
+                        'type': i['type'],
+                        'sha256': i['sha256']
+                       } for i in res]
           if l < chunk:
             break
           else:
@@ -51,16 +64,48 @@ class Cloud(_Cloud):    # redefined cloud class for implement some application l
       else:
         return status, res
 
-  def download(self, path, lpath):    # download via temporary file to make it in transaction manner
+  def download(self, path):    # download via temporary file to make it in transaction manner
     with tempFile(suffix='.yandex-disk-client', delete=False) as f:
       temp = f.name
-    status, res = _Cloud.download(self, path, temp)
+    status, res = _Cloud.download(self, relpath(path, start=self.path), temp)
     if status:
       try:
-        fileMove(temp, lpath)
+        fileMove(temp, path)
+        self.data[path] = getModified(path)
       except:
         status = False
     return status, res
+
+  def upload(self, path):
+    status, res = _Cloud.upload(self, path, relpath(path, start=self.path))
+    if status:
+      self.data[path] = getModified(path)
+    return status, res
+
+  def delete(self, path):
+    status, res = _Cloud.delete(self, relpath(path, start=self.path))
+    if status:
+      del self.data[path]
+    return status, res
+
+  def move(self, pathfrom, pathto):
+    pathto = relpath(pathto, start=self.path)
+    pathfrom = relpath(pathfrom, start=self.path)
+    status, res = _Cloud.move(self, pathfrom, pathto)
+    if status:
+      self.data[pathto] = self.data[pathfrom]
+      del self.data[pathfrom]
+    return status, res
+
+  def mkDir(self, path):
+    status, res = _Cloud.mkDir(self, relpath(path, start=self.path))
+    if status:
+      self.data[path] = True
+    return status, res
+
+def getModified(path):
+  f_st = file_info(path)      # follow symlink by default ???
+  return strftime('%Y-%m-%dT%H:%M:%S', gmtime(f_st.st_mtime))
 
 class Disk(object):
   '''High-level Yandex.disk client interface.
@@ -74,11 +119,12 @@ class Disk(object):
   def __init__(self, user):
     self.user = user
     self.path = expanduser(self.user['path'])
-    self.cloud = Cloud(self.user['auth'])
+    self.cloud = Cloud(self.user['auth'],
+                       path_join(self.path, dataFolder, 'hist.data'),
+                       self.path)
     self.executor = ThreadPoolExecutor()
     self.shutdown = False
     self.downloads = set()
-    self.data = Config(path_join(self.path, dataFolder, 'hist.data'))
     self.EH = Thread(target=self._eventHandler)
     self.EH.name = 'EventHandler'
     self.watch = self._PathWatcher(self.path,
@@ -146,10 +192,12 @@ class Disk(object):
         print('Finished in %s sec.' % (time() - stime))
         self.updateInfo()
       sync = False
-      if self.error and status == 'idle':
-        print('ERROR WAS DETECTED!!!!!!! --> fillSync')
-        sync = True
-        self.error = False
+      if status == 'idle':
+        self.cloud.data.save()
+        if self.error:
+          print('ERROR WAS DETECTED!!!!!!! --> fillSync')
+          sync = True
+          self.error = False
       self.updateInfo()
       if self.changes:
         changes = self.changes
@@ -236,7 +284,7 @@ class Disk(object):
     for stat, items in self.cloud.getFullList(chunk=20):
       if stat:
         for i in items:
-          path = path_join(self.path, i['path'])
+          path = i['path']
           p, _ = path_split(path)
           if p in exclude:
             continue
@@ -251,6 +299,10 @@ class Disk(object):
                 # Cloud and local hashes are equal
                 ignore.add(path)
                 ignore.add(p)
+                # remember modified data-time of matched path and it's folder
+                self.cloud.data[path] = getModified(path)
+                if p != path:
+                  self.cloud.data[p] = True
                 continue
               else:
                 # Need to decide what to do: upload, download, or it is conflict.
@@ -260,17 +312,15 @@ class Disk(object):
                 # - download if the cloud file newer than the local, or
                 # - upload if the local file newer than the cloud file.
                 c_t = i['modified'][:19]    # remove time zone as it is always GMT (+00:00)
-                f_st = file_info(path)      # follow symlink by default ???
-                l_t = strftime('%Y-%m-%dT%H:%M:%S', gmtime(f_st.st_mtime))
-                h_t = self.data.get(path, l_t)
+                l_t = getModified(path)
+                h_t = self.cloud.data.get(path, l_t)
                 if l_t != h_t and c_t != h_t:     # conflict
                   print('conflict')
                 elif l_t > c_t:
                   # upload (as file exists the dir exists too - no need to create dir in cloud)
-                  self._submit(self.cloud.upload, (path, i['path']))
+                  self._submit(self.cloud.upload, (path,))
                   ignore.add(path)
                   ignore.add(p)
-                  data[path] = l_t
                   continue
                 #else:  # download - it is performed below
             else:  # it is existing directory
@@ -279,21 +329,37 @@ class Disk(object):
               continue
           # the file has to be downloaded or.... deleted from the cloud when local file
           # was deleted and this deletion was not catched by active client (client was not
-          # connected to cloud). But in order to have a reasons for such decision the
-          # history info is required.
-
-          if i['type'] == 'file':
-            if not pathExists(p):
-              self.downloads.add(p)             # store new dir in dowloads to avoud upload
-              makedirs(p, exist_ok=True)
-            ignore.add(p)
-            self.downloads.add(path)            # store downloaded file in dowloads to avoud upload
-            self._submit(self.cloud.download, (i['path'], path))
-            ignore.add(path)
-          else:                                 # directory not exists
-            self.downloads.add(path)            # store new dir in dowloads to avoud upload
-            makedirs(path, exist_ok=True)
-            ignore.add(path)
+          # connected to cloud).
+          if self.cloud.data.get(path, False):  # do we have history data for this path?
+            # as we have history info for path but local path doesn't exists then we have to
+            # delete it from cloud
+            if not pathExists(p):   # containing directory is also removed?
+              d = p
+              while True:           # go down to the shortest removed directory
+                p_, _ = path_split(d)
+                if pathExists(p_):
+                  break
+                d = p_
+              self.cloud.data[d] = True
+              self._submit(self.cloud.delete, (d,))
+              exclude.add(p)        # add deleted directory in exceptions to avoid unnecessary checks
+            else:                   # delete only file
+              self._submit(self.cloud.delete, (path,))
+          else:   # local file have to be updated (downloaded from the cloud)
+            if i['type'] == 'file':
+              if not pathExists(p):
+                self.downloads.add(p)             # store new dir in dowloads to avoud upload
+                makedirs(p, exist_ok=True)
+                self.cloud.data[p] = True
+              ignore.add(p)
+              self.downloads.add(path)            # store downloaded file in dowloads to avoud upload
+              self._submit(self.cloud.download, (path,))
+              ignore.add(path)
+            else:                                 # directory not exists
+              self.downloads.add(path)            # store new dir in dowloads to avoud upload
+              makedirs(path, exist_ok=True)
+              ignore.add(path)
+    self.cloud.data.save()
     # (local - ignored) -> upload to cloud
     for root, dirs, files in walk(self.path):
       ex = False
@@ -308,12 +374,12 @@ class Disk(object):
         if d not in ignore | exclude:
           # directory have to be created before start of uploading a file in it
           # do it inline as it rather fast operation
-          s, r = self.cloud.mkDir(relpath(d, start=self.path))
+          s, r = self.cloud.mkDir(d)
           print('done inline', s, r)
       for f in files:
         f = path_join(root, f)
         if f not in ignore:
-          self._submit(self.cloud.upload, (f, relpath(f, start=self.path)))
+          self._submit(self.cloud.upload, (f,))
 
   def _eventHandler(self):      # Thread that handles iNotify watcher events
 
@@ -324,38 +390,34 @@ class Disk(object):
           self.downloads -= {event.pathname}
         else:
           # create newly created local dir in the cloud
-          self._submit(self.cloud.mkDir, (event.path,))
+          self._submit(self.cloud.mkDir, (event.pathname,))
       else:   # it is file
         # do not start upload for downloading file
         if event.pathname not in self.downloads:
-          self._submit(self.cloud.upload, (event.pathname, event.path))
+          self._submit(self.cloud.upload, (event.pathname,))
 
     def moved(event):
       if event.mask & IN_MOVED_TO:  # moved in = new
         new(event)
       else:  # moved out = deleted
-        self._submit(self.cloud.delete, (event.path,))
+        self._submit(self.cloud.delete, (event.pathname,))
 
     IN_MOVED = IN_MOVED_FROM | IN_MOVED_TO
     while not self.shutdown:
       event = self.watch.get()
       if event is not None:
-        # make relative path from full path from event.pathname
-        event.path = relpath(event.pathname, start=self.path)
         ''' event.pathname - full path
-            event.path - relative path
         '''
         while event.mask & IN_MOVED:
           try:
             event2 = self.watch.get(timeout=0.1)
-            event2.path = relpath(event2.pathname, start=self.path)
             try:
               cookie = event2.cookie
             except AttributeError:
               cookie = ''
             if event.cookie == cookie:
               # greate! we've found the move operatin (file moved within the synced path)
-              self._submit(self.cloud.move, (event.path, event2.path))
+              self._submit(self.cloud.move, (event.pathname, event2.pathname))
               break
             else:
               moved(event)
@@ -369,15 +431,15 @@ class Disk(object):
         if event.mask & IN_CREATE:
           new(event)
         elif event.mask & IN_DELETE:
-          self._submit(self.cloud.delete, (event.path,))
+          self._submit(self.cloud.delete, (event.pathname,))
         elif event.mask & IN_MODIFY:
           # do not start upload for downloading file
           if event.pathname not in self.downloads:
-            self._submit(self.cloud.upload, (event.pathname, event.path))
+            self._submit(self.cloud.upload, (event.pathname,))
         elif event.mask & IN_ATTRIB:
           # do not start upload for downloading file
           if event.pathname not in self.downloads:
-            self._submit(self.cloud.upload, (event.pathname, event.path))
+            self._submit(self.cloud.upload, (event.pathname,))
 
   class _PathWatcher(Queue):    # iNotify watcher for directory
     '''

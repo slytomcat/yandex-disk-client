@@ -120,6 +120,8 @@ class Cloud(object):
     status, res = self._request(req, {'1': path})
     if status == code:
       res['path'] = res['path'].replace('disk:/', '')
+      if res.get('items', False):   # remove items form directory resource info
+        del res['items']
       return True, res
     else:
       print('Resource %s returned %d' % (path, status))
@@ -129,7 +131,7 @@ class Cloud(object):
     req, code = self.CMD['list']
     offset = offset or 0
     chunk = chunk or 20
-    status, res = self._request(req, {'1': str(chunk), '2': str(offset)}) #'2147483647', '2': '0'})
+    status, res = self._request(req, {'1': str(chunk), '2': str(offset)})
     if status == code:
       return True, [{key: i[key] if key != 'path' else i[key].replace('disk:/', '')
                      for key in ['size', 'modified', 'created', 'sha256', 'path', 'type']
@@ -234,7 +236,6 @@ if __name__ == '__main__':
     return token
 
   c = Cloud(getToken())
-  '''
 
   print('\nDisk Info:', c.getDiskInfo(), '\n')
   print('\nNew dir:', c.mkDir('testdir'), '\n')
@@ -245,18 +246,15 @@ if __name__ == '__main__':
   print('\nCopy big Dir:', c.copy('Music', 'MusicTest'), '\n')
   print('\nMove big Dir:', c.move('MusicTest', 'MusicTest2'), '\n')
   print('\nDelete big Dir:', c.delete('MusicTest2'), '\n')
-  '''
   print('\nDisk Info:', c.getDiskInfo(), '\n')
   print('\nEmpty trash:', c.trash(), '\n')
   print('\nDisk Info:', c.getDiskInfo(), '\n')
-  '''
   print('\nLast:', c.getLast(), '\n')
-  print('\nFull list:', end='')
-  for ch in c.getFullList(chunk=5):
-    print(ch)
+  print('\nFull list:', c.getFullList(chunk=5), '\n')
   print('\nUpload:', c.upload('README.md', 'README_.md'), '\n')
   print('\nDownload:', c.download('README_.md', 'README_.md'), '\n')
   print('\nDelete file:', c.delete('README_.md'), '\n')
+  '''
   '''
 
 
