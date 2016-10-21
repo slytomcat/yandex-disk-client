@@ -19,4 +19,4 @@ xmpp.py - some samples of xmpp client - draft
 
 pyinotify.py - fixed version (see https://github.com/seb-m/pyinotify/pull/135)
 
-Disk.py - primary YD client class - in progress
+Disk.py - primary YD client class - in progress (iNotify events handling - done, status tracking - done, fullSync with history data - done, xmpp client events handling - not started)

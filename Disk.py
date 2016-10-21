@@ -32,10 +32,12 @@ from glob import iglob
 from tempfile import NamedTemporaryFile as tempFile
 from shutil import move as fileMove
 
-class Cloud(_Cloud):    # redefined cloud class for implement some application level logic
-  ''' - all paths are absolute paths only (download/upload by 1 parameter - absolute path)
-      - getFullList converter to generator that yields fill list by chunks paths
+class Cloud(_Cloud):    # redefined cloud class for implement application level logic
+  ''' - all paths in parameters are absolute paths only
+      - download/upload have only 1 parameter - absolute path of file
+      - getFullList converter to generator that yields full list by chunks of paths
       - download is performed through the temporary file
+      - history data updates according to the succes operations
   '''
   def __init__(self, token, hdata, path):
     self.data = Config(hdata)
@@ -83,9 +85,11 @@ class Cloud(_Cloud):    # redefined cloud class for implement some application l
   def delete(self, path):
     status, res = _Cloud.delete(self, relpath(path, start=self.path))
     if status:
-      to_remove = [p for p in self.data.keys() if p.startswith(path)]
+      # remove all subdirectories and files in the path if path is a directory or
+      # remove just the path if it is a file
+      to_remove = [p for p in iter(self.data) if p.startswith(path)]
       for p in to_remove:
-        del self.data[p]
+        self.data.pop(p, None)
     return status, res
 
   def move(self, pathfrom, pathto):
@@ -93,8 +97,9 @@ class Cloud(_Cloud):    # redefined cloud class for implement some application l
     pathfrom = relpath(pathfrom, start=self.path)
     status, res = _Cloud.move(self, pathfrom, pathto)
     if status:
+      # move history date too
       self.data[pathto] = self.data[pathfrom]
-      del self.data[pathfrom]
+      self.data.pop(pathfrom, None)
     return status, res
 
   def mkDir(self, path):
@@ -106,6 +111,13 @@ class Cloud(_Cloud):    # redefined cloud class for implement some application l
 def getModified(path):
   f_st = file_info(path)      # follow symlink by default ???
   return strftime('%Y-%m-%dT%H:%M:%S', gmtime(f_st.st_mtime))
+
+def in_paths(path, paths):
+  '''check that path is within one of paths'''
+  for p in paths:
+    if path.startswith(p):
+      return True         # yes if p is a left part of checked path
+  return False
 
 class Disk(object):
   '''High-level Yandex.disk client interface.
@@ -255,11 +267,11 @@ class Disk(object):
     def taskCB(ft):
       res = ft.result()
       unf = self.executor.unfinished()
-      if res is not None:
+      print('Done: %s, %d unfinished' % (str(res), unf))
+      if isinstance(res, tuple):
         stat, path = res      # it is cloud operation
         if not stat:
           self.error = True
-        print('Done: %s, %d unfinished' % (str(res), unf))
         if path:
           # Remove downloaded file from downloads
           self.downloads -= {path}
@@ -270,23 +282,11 @@ class Disk(object):
     ft.add_done_callback(taskCB)
     if self.status != 'busy':
       self._setStatus('busy')
-    name = findall(r'Cloud\.\w*', str(task))
-    if name:
-      name = name[0]
-    else:
-      name = 'fullSync'
-    print('submit %s %s' % (name , str(args)))
+    print('submit %s %s' % (str(task) , str(args)))
 
   def fullSync(self):
     '''Execute full synchronization within PoolExecutor'''
     def _fullSync(self):
-      def excluded(path):
-        '''check that path is within one of excluded paths'''
-        for p in exclude:
-          if path.startswith(p):
-            return True         # yes if excluded path is a part of checked path
-        return False
-
       ignore = set()  # set of files that shouldn't be synced or already in sync
       exclude = set(self.watch.exclude)
       # {colud} - {local} -> download from cloud or delete from cloud if it exist in the history
@@ -298,7 +298,7 @@ class Disk(object):
           for i in items:
             path = i['path']
             p, _ = path_split(path)
-            if excluded(p):
+            if in_paths(p, exclude):
               continue
             if pathExists(path):
               if i['type'] != 'file':   # it is existing directory
@@ -314,11 +314,12 @@ class Disk(object):
                 if hh == i['sha256']:
                   # Cloud and local hashes are equal
                   ignore.add(path)
-                  ignore.add(p)
-                  # remember modified data-time of matched path and it's folder
                   self.cloud.data[path] = getModified(path)
-                  if p != path:
-                    self.cloud.data[p] = True
+                  if p not in ignore:    # add in ignore and history all folders by way to file
+                    while p != self.path:
+                      ignore.add(p)
+                      self.cloud.data[p] = True
+                      p, _ = path_split(p)
                   continue
                 else:
                   # Cloud and local files are different. Need to decide what to do: upload,
@@ -372,7 +373,7 @@ class Disk(object):
                 ignore.add(path)
       # (local - ignored) -> upload to cloud
       for root, dirs, files in walk(self.path):
-        if excluded(root):
+        if in_paths(root, exclude):
           continue
         for d in dirs:
           d = path_join(root, d)
@@ -385,6 +386,7 @@ class Disk(object):
           f = path_join(root, f)
           if f not in ignore:
             self._submit(self.cloud.upload, (f,))
+      return 'fullSync'
     self._submit(_fullSync, (self,))
 
   def _eventHandler(self):      # Thread that handles iNotify watcher events
@@ -396,7 +398,13 @@ class Disk(object):
           self.downloads -= {event.pathname}
         else:
           # create newly created local dir in the cloud
-          self._submit(self.cloud.mkDir, (event.pathname,))
+          if event.mask & IN_MOVED_TO:
+            # If moved folder is not empty there is no evets appear for its content.
+            # So we need to walk inside and upload all directories, subdirectories and files
+            # that are within the moved directory
+            self._submit(recCreate, (event.pathname, self.watch.exclude, self._submit))
+          else:
+            self._submit(self.cloud.mkDir, (event.pathname,))
       else:   # it is file
         # do not start upload for downloading file
         if event.pathname not in self.downloads:
@@ -408,15 +416,30 @@ class Disk(object):
       else:  # moved out = deleted
         self._submit(self.cloud.delete, (event.pathname,))
 
+    def recCreate(path, exclude, submit):
+      s, r = self.cloud.mkDir(path)
+      print('done in-line', s, r)
+      for root, dirs, files in walk(path):
+        if in_paths(root, exclude):
+          break
+        for d in dirs:
+          s, r = self.cloud.mkDir(path_join(root, d))
+          print('done in-line', s, r)
+        for f in files:
+          submit(self.cloud.upload, (path_join(root, f),))
+      return 'recCreate'
+
     IN_MOVED = IN_MOVED_FROM | IN_MOVED_TO
     while not self.shutdown:
       event = self.watch.get()
+      print(event)
       if event is not None:
         ''' event.pathname - full path
         '''
         while event.mask & IN_MOVED:
           try:
             event2 = self.watch.get(timeout=0.1)
+            print(event2)
             try:
               cookie = event2.cookie
             except AttributeError:
@@ -472,10 +495,8 @@ class Disk(object):
       # Add watch and start watching
       #self.exclude = exclude or self.exclude
       excl = ExcludeFilter(self.exclude)
-
       self._watch = self._wm.add_watch(self._path, self.FLAGS, exclude_filter=excl,
                                        auto_add=True, rec=True, do_glob=False)
-
     def stop(self):
       # Remove watch and stop watching
       self._wm.rm_watch(self._watch[self._path], rec=True)
@@ -488,7 +509,7 @@ class Disk(object):
     if self.status == 'none':
       self.watch.start()
       #self.listener.start()
-      self._setStatus('idle')
+      #self._setStatus('idle')
       self.fullSync()
 
   def disconnect(self):
