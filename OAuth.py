@@ -100,7 +100,7 @@ if __name__ == '__main__':
   ID = findall(r'AppID: (.*)', buf)[0].strip()
   secret = findall(r'AppSecret: (.*)', buf)[0].strip()
 
-  token = Oauth.getToken(ID, secret)
-  login = Oauth.getLogin(token)
+  token = getToken(ID, secret)
+  login = getLogin(token)
 
   print(login, token)

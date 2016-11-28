@@ -103,7 +103,7 @@ class Cloud(object):
       return True, res
     else:
       print('Info returned %d' % status)
-      return False, '%s : %s' % (str(status), name)
+      return False, status
 
   def getLast(self):
     '''Receives 10 last synchronized items'''
@@ -134,7 +134,7 @@ class Cloud(object):
     status, res = self._request(req, {'1': str(chunk), '2': str(offset)})
     if status == code:
       return True, [{key: i[key] if key != 'path' else i[key].replace('disk:/', '')
-                     for key in ['size', 'modified', 'created', 'sha256', 'path', 'type']
+                     for key in ['path', 'type', 'modified', 'sha256']
                     } for i in res['items']]
     else:
       print('List returned %d' % status)
@@ -233,6 +233,7 @@ if __name__ == '__main__':
     '''
     with open('OAuth.info', 'rt') as f:
       token = findall(r'devtoken: (.*)', f.read())[0].strip()
+      print ('Token: %s'%(token))
     return token
 
   c = Cloud(getToken())
