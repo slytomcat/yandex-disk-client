@@ -33,9 +33,9 @@ _ = str   # temporary replacement for localization functionality
 def getToken(app_id, app_secret, gui=False):
   '''Receive access token via verification code that user can get on authorization page.
 
-     Usage token = getAuth(app_id, app_secret, GUI)
+     Usage token = getAuth(app_id, app_secret[, GUI])
 
-     Interaction with user is performed via GUI (GUI=True) or via CLI (GUI=False or missed)
+     Interaction with user is performed via GUI (GUI=True) or via CLI (by default or if GUI=False)
   '''
   host = uname().nodename
   token = ''
@@ -46,10 +46,10 @@ def getToken(app_id, app_secret, gui=False):
   msg3 = _("Enter the confirmation code here:")
 
   url = ('https://oauth.yandex.ru/authorize?'
-           'response_type=code'                    # 'token' itself  or 'code' for token request
-           '&client_id=%s' % app_id +              # application identificator
-           '&display=popup'                        # popup - no additional decoration on the page
-           '&device_name=%s' % (uname().nodename)  # device name (host name)
+         'response_type=code'                    # 'token' itself  or 'code' for token request
+         '&client_id=%s' % app_id +              # application identificator
+         '&display=popup'                        # popup - no additional decoration on the page
+         '&device_name=%s' % host                # device name (host name)
         )
   while token == '':
     call(['xdg-open', url], stdout=DEVNULL, stderr= DEVNULL)
@@ -89,8 +89,6 @@ def getLogin(token):
   return None
 
 if __name__ == '__main__':
-  from re import findall
-
   '''Test ID and secret have to be stored in file 'OAuth.info' in following format:
          AppID: <Application ID>
          AppSecret: <Application password>'''

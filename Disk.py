@@ -149,7 +149,7 @@ class Disk(object):
                                    [path_join(self.path, e)
                                      for e in self.user['exclude'] + ['.yandex-disk-client']])
     self.EH.start()
-    #self.listener = XMPPListener('%s\00%s' % (user[login], user[auth]))
+    #self.listener = XMPPListener('\00'.join(user[login], user[auth]))
     # Status treatment staff
     self.prevStatus = 'none'
     self.status = 'none'
@@ -264,7 +264,7 @@ class Disk(object):
       elif e == 'prop':
         s = ''
         for t in ['total', 'used', 'trash']:
-          s += '%s: %s ' % (t, self.cloudStatus[t])
+          s += ': '.join(t, self.cloudStatus[t])
         print(s)
 
   def _submit(self, task, args):
@@ -575,7 +575,6 @@ if __name__ == '__main__':
   from os.path import exists as pathExists
   from re import findall
   from signal import signal, SIGTERM, SIGINT
-
 
   appName = 'yd-client'
   dataFolder = '.yandex-disk-client'
