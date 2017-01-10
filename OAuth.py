@@ -33,23 +33,23 @@ _ = str   # temporary replacement for localization functionality
 def getToken(app_id, app_secret, gui=False):
   '''Receive access token via verification code that user can get on authorization page.
 
-     Usage token = getAuth(app_id, app_secret[, GUI])
+     Usage token = getAuth(app_id, app_secret, GUI)
 
-     Interaction with user is performed via GUI (GUI=True) or via CLI (by default or if GUI=False)
+     Interaction with user is performed via GUI (GUI=True) or via CLI (GUI=False or missed)
   '''
   host = uname().nodename
   token = ''
   msg1 = _("The authorization page will be opened in your browser automatically. If it"
            " doesn't happen then copy link below and paste into your web-browser.\n")
-  msg2 = _("\nAfter authorization you'll receive the confirmation code. Put the code "
-           "into the input box below and press Enter\n\n")
+  msg2 = _("\nAfter authorization you'll receive the confirmation code. Copy/paste the code "
+           "below and press Enter\n\n")
   msg3 = _("Enter the confirmation code here:")
 
-  url = ('https://oauth.yandex.ru/authorize?'
-         'response_type=code'                    # 'token' itself  or 'code' for token request
-         '&client_id=%s' % app_id +              # application identificator
-         '&display=popup'                        # popup - no additional decoration on the page
-         '&device_name=%s' % host                # device name (host name)
+  url = ('https://oauth.yandex.ru/authorize?' + '&'.join((
+           'response_type=code',                   # 'token' itself  or 'code' for token request
+           'client_id=%s' % app_id,               # application identificator
+           'display=popup',                       # popup - no additional decoration on the page
+           'device_name=%s' % uname().nodename))  # device name (host name)
         )
   while token == '':
     call(['xdg-open', url], stdout=DEVNULL, stderr= DEVNULL)

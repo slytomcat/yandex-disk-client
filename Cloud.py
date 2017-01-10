@@ -26,73 +26,62 @@ class Cloud(object):
     # make headers for requests that require authorization
     self._headers = {'Accept': 'application/json', 'Authorization': token}
 
-  def _expand(self, url, params):
-    '''It replaces '{key}' inside url onto 'value' basing on params dictionary ({'key':'value'}).
-    '''
-    for key, value in params.items():
-      url = url.replace('{%s}' % key, value)
-    return url
-
-  def _request(self, req, params=None):
+  def _request(self, req, *params):
     '''Perform the request with expanded URL via specified method using predefined headers
     '''
     method, url = req
-    r = {'GET': requests.get,
-         'PUT': requests.put,
-         'DELETE': requests.delete,
-         'POST': requests.post
-        }[method](self._expand(url, params or {}), headers=self._headers)
+    r = method(url.format(*params), headers=self._headers)
     return r.status_code , r.json() if r.text else ''
 
-  CMD = {'info':  (('GET',
+  CMD = {'info':  ((requests.get,
                     'https://cloud-api.yandex.net/v1/disk'
                     '?fields=total_space%2Ctrash_size%2Cused_space%2Crevision'),
                    200),
-         'last':  (('GET',
+         'last':  ((requests.get,
                     'https://cloud-api.yandex.net/v1/disk/resources/last-uploaded?limit=10'
                     '&fields=path'),
                    200),
-         'res':   (('GET',
-                    'https://cloud-api.yandex.net/v1/disk/resources?path={1}'
+         'res':   ((requests.get,
+                    'https://cloud-api.yandex.net/v1/disk/resources?path={}'
                     '&fields=size%2Cmodified%2Ccreated%2Csha256%2Cpath%2Ctype%2Crevision'),
                    200),
-         'list':  (('GET',
-                    'https://cloud-api.yandex.net/v1/disk/resources/files?limit={1}&offset={2}'),
+         'list':  ((requests.get,
+                    'https://cloud-api.yandex.net/v1/disk/resources/files?limit={}&offset={}'),
                    200),
-         'mkdir': (('PUT',
-                    'https://cloud-api.yandex.net/v1/disk/resources?path={1}'),
+         'mkdir': ((requests.put,
+                    'https://cloud-api.yandex.net/v1/disk/resources?path={}'),
                    201),
-         'del':   (('DELETE',
-                    'https://cloud-api.yandex.net/v1/disk/resources?path={1}&permanently={2}'),
+         'del':   ((requests.delete,
+                    'https://cloud-api.yandex.net/v1/disk/resources?path={}&permanently={}'),
                    204),
-         'trash': (('DELETE',
+         'trash': ((requests.delete,
                     'https://cloud-api.yandex.net/v1/disk/trash/resources'),
                    204),
-         'move':  (('POST',
-                    'https://cloud-api.yandex.net/v1/disk/resources/move?from={1}&path={2}'),
+         'move':  ((requests.post,
+                    'https://cloud-api.yandex.net/v1/disk/resources/move?from={}&path={}'),
                    201),
-         'copy':  (('POST',
-                    'https://cloud-api.yandex.net/v1/disk/resources/copy?from={1}&path={2}'),
+         'copy':  ((requests.post,
+                    'https://cloud-api.yandex.net/v1/disk/resources/copy?from={}&path={}'),
                    201),
-         'up':    (('GET',
-                    'https://cloud-api.yandex.net/v1/disk/resources/upload?path={1}&overwrite={2}'),
+         'up':    ((requests.get,
+                    'https://cloud-api.yandex.net/v1/disk/resources/upload?path={}&overwrite={}'),
                    200),
-         'down':  (('GET',
-                    'https://cloud-api.yandex.net/v1/disk/resources/download?path={1}'),
+         'down':  ((requests.get,
+                    'https://cloud-api.yandex.net/v1/disk/resources/download?path={}'),
                    200)}
 
-  def _wait(self, res, path):
+  def _wait(self, url, path):
     '''waits for asynchronous operation completion '''
     while True:
       sleep(0.5)  # reasonable pause between continuous requests
-      status, r = self._request((res['method'], res['href']))
+      status, r = self._request((requests.get, url))
       if status == 200:
         if r["status"] == "success":
           return True, path
         else:
           continue
       else:
-        print('Async op [by] %s returned %d' % (path, status))
+        print('Async op [on "%s"] returned %d' % (path, status))
         return False, path
 
   def getDiskInfo(self):
@@ -117,7 +106,7 @@ class Cloud(object):
 
   def getResource(self, path):
     req, code = self.CMD['res']
-    status, res = self._request(req, {'1': path})
+    status, res = self._request(req, path)
     if status == code:
       res['path'] = res['path'].replace('disk:/', '')
       if res.get('items', False):   # remove items form directory resource info
@@ -131,7 +120,7 @@ class Cloud(object):
     req, code = self.CMD['list']
     offset = offset or 0
     chunk = chunk or 20
-    status, res = self._request(req, {'1': str(chunk), '2': str(offset)})
+    status, res = self._request(req, str(chunk), str(offset))
     if status == code:
       return True, [{key: i[key] if key != 'path' else i[key].replace('disk:/', '')
                      for key in ['path', 'type', 'modified', 'sha256']
@@ -142,7 +131,7 @@ class Cloud(object):
 
   def mkDir(self, path):
     req, code = self.CMD['mkdir']
-    status, res = self._request(req, {'1': path})
+    status, res = self._request(req, path)
     if status == code:
       return True, path
     else:
@@ -152,11 +141,11 @@ class Cloud(object):
   def delete(self, path, perm=False):
     perm = 'true' if perm else 'false'
     req, code = self.CMD['del']
-    status, res = self._request(req, {'1': path, '2': perm})
+    status, res = self._request(req, path, perm)
     if status == code:
       return True, path
     elif status == 202:
-      return self._wait(res, path)
+      return self._wait(res['href'], path)
     else:
       print('Delete %s returned %d' % (path, status))
       return False, path
@@ -167,29 +156,29 @@ class Cloud(object):
     if status == code:
       return True, ''
     elif status == 202:
-      return self._wait(res, '')
+      return self._wait(res['href'], '')
     else:
       print('Trash clean returned %d' % status)
       return False, ''
 
   def move(self, pathfrom, pathto):
     req, code = self.CMD['move']
-    status, res = self._request(req, {'1': pathfrom, '2': pathto})
+    status, res = self._request(req, pathfrom, pathto)
     if status == code:
       return True, pathto
     elif status == 202:
-      return self._wait(res, pathto)
+      return self._wait(res['href'], pathto)
     else:
       print('Move %s to %s returned %d' % (pathfrom, pathto, status))
       return False, pathto
 
   def copy(self, pathfrom, pathto):
     req, code = self.CMD['copy']
-    status, res = self._request(req, {'1': pathfrom, '2': pathto})
+    status, res = self._request(req, pathfrom, pathto)
     if status == code:
       return True, pathto
     elif status == 202:
-      return self._wait(res, pathto)
+      return self._wait(res['href'], pathto)
     else:
       print('Copy %s to %s returned %d' % (pathfrom, pathto, status))
       return False, pathto
@@ -197,7 +186,7 @@ class Cloud(object):
   def upload(self, lpath, path, ow=True):
     ow = 'true' if ow else 'false'
     req, code = self.CMD['up']
-    status, res = self._request(req, {'1': path,'2': ow})
+    status, res = self._request(req, path, ow)
     if status == code:
       try:
         with open(lpath, 'rb') as f:
@@ -211,7 +200,7 @@ class Cloud(object):
 
   def download(self, path, lpath):
     req, code = self.CMD['down']
-    status, res = self._request(req, {'1': path})
+    status, res = self._request(req, path)
     if status == code:
       r = requests.get(res['href'], stream=True)
       with open(lpath, 'wb') as f:
@@ -228,7 +217,7 @@ if __name__ == '__main__':
 
   def getToken():
     from re import findall
-    '''Test token have to be stored in file 'OAuth.info' with following format:
+    '''Test token have to be store_requestd in file 'OAuth.info' with following format:
            devtoken:  <OAuth token>
     '''
     with open('OAuth.info', 'rt') as f:
@@ -257,6 +246,3 @@ if __name__ == '__main__':
   print('\nDelete file:', c.delete('README_.md'), '\n')
   '''
   '''
-
-
-
