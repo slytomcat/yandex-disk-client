@@ -31,7 +31,7 @@ class Cloud(object):
     '''
     method, url = req
     r = method(url.format(*params), headers=self._headers)
-    return r.status_code , r.json() if r.text else ''
+    return r.status_code, r.json() if r.text else ''
 
   CMD = {'info':  ((requests.get,
                     'https://cloud-api.yandex.net/v1/disk'
@@ -116,10 +116,8 @@ class Cloud(object):
       print('Resource %s returned %d' % (path, status))
       return False, path
 
-  def getFullList(self, chunk=None, offset=None):
+  def getFullList(self, chunk=20, offset=0):
     req, code = self.CMD['list']
-    offset = offset or 0
-    chunk = chunk or 20
     status, res = self._request(req, str(chunk), str(offset))
     if status == code:
       return True, [{key: i[key] if key != 'path' else i[key].replace('disk:/', '')
@@ -139,9 +137,8 @@ class Cloud(object):
       return False, path
 
   def delete(self, path, perm=False):
-    perm = 'true' if perm else 'false'
     req, code = self.CMD['del']
-    status, res = self._request(req, path, perm)
+    status, res = self._request(req, path, 'true' if perm else 'false')
     if status == code:
       return True, path
     elif status == 202:
@@ -184,9 +181,8 @@ class Cloud(object):
       return False, pathto
 
   def upload(self, lpath, path, ow=True):
-    ow = 'true' if ow else 'false'
     req, code = self.CMD['up']
-    status, res = self._request(req, path, ow)
+    status, res = self._request(req, path, 'true' if ow else 'false')
     if status == code:
       try:
         with open(lpath, 'rb') as f:
