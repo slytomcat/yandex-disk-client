@@ -20,17 +20,18 @@
 
 import requests
 from time import sleep
+from json import dumps
 
 class Cloud(object):
   def __init__(self, token):
     # make headers for requests that require authorization
     self._headers = {'Accept': 'application/json', 'Authorization': token}
 
-  def _request(self, req, *params):
+  def _request(self, req, *args, dt=None):
     '''Perform the request with expanded URL via specified method using predefined headers
     '''
     method, url = req
-    r = method(url.format(*params), headers=self._headers)
+    r = method(url.format(*args), data=dt, headers=self._headers)
     return r.status_code, r.json() if r.text else ''
 
   CMD = {'info':  ((requests.get,
@@ -43,7 +44,11 @@ class Cloud(object):
                    200),
          'res':   ((requests.get,
                     'https://cloud-api.yandex.net/v1/disk/resources?path={}'
-                    '&fields=size%2Cmodified%2Ccreated%2Csha256%2Cpath%2Ctype%2Crevision'),
+                    '&fields=size%2Cmodified%2Ccreated%2Csha256%2Cpath%2Ctype%2Ccustom_properties'),
+                   200),
+         'prop':  ((requests.patch,
+                    'https://cloud-api.yandex.net/v1/disk/resources/?path={}'
+                    '&fields=name%2Ccustom_properties'),
                    200),
          'list':  ((requests.get,
                     'https://cloud-api.yandex.net/v1/disk/resources/files?limit={}&offset={}'),
@@ -115,6 +120,15 @@ class Cloud(object):
     else:
       print('Resource %s returned %d' % (path, status))
       return False, path
+
+  def setProps(self, path, **props):
+    req, code = self.CMD['prop']
+    status, res = self._request(req, path, dt=dumps({"custom_properties": props}))
+    if status == code:
+      return True, res
+    else:
+      print('setProp returned %d' % status)
+      return False, ''
 
   def getFullList(self, chunk=20, offset=0):
     req, code = self.CMD['list']
@@ -227,6 +241,8 @@ if __name__ == '__main__':
   print('\nNew dir:', c.mkDir('testdir'), '\n')
   print('\nMove dir:', c.move('testdir', 'newtestdir'), '\n')
   print('\nDir info:', c.getResource('newtestdir'), '\n')
+  print('\nFile info:', c.getResource('Bears.jpg'), '\n')
+  print('\nSetProps:', c.setProps('Bears.jpg', uid=1000, gid=1000, mod=33204))
   print('\nFile info:', c.getResource('Bears.jpg'), '\n')
   print('\nDelete Dir:', c.delete('newtestdir'), '\n')
   print('\nCopy big Dir:', c.copy('Music', 'MusicTest'), '\n')

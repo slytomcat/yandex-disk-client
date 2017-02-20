@@ -18,7 +18,7 @@
 #  You should have received a copy of the GNU General Public License
 #  along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-from os import remove, makedirs, getpid, geteuid, getenv, cpu_count, walk, stat as file_info
+from os import remove, makedirs, walk, stat as file_info, chown, chmod
 from os.path import join as path_join, expanduser, relpath, split as path_split
 from pyinotify import ProcessEvent, WatchManager, Notifier, ThreadedNotifier, ExcludeFilter,\
                       IN_MODIFY, IN_DELETE, IN_CREATE, IN_MOVED_FROM, IN_MOVED_TO, IN_ATTRIB
@@ -68,19 +68,34 @@ class Cloud(_Cloud):    # redefined cloud class for implement application level 
   def download(self, path):    # download via temporary file to make it in transaction manner
     with tempFile(suffix='.yandex-disk-client', delete=False) as f:
       temp = f.name
-    status, res = _Cloud.download(self, relpath(path, start=self.path), temp)
+    r_path = relpath(path, start=self.path)
+    status, res = _Cloud.download(self, r_path, temp)
     if status:
       try:
         fileMove(temp, path)
-        self.h_data[path] = getModified(path)
       except:
         status = False
+      self.h_data[path] = file_info(path).st_mtime
+      st, f_res = _Cloud.getResource(self, r_path)
+      if st:
+        props = f_res.get("custom_properties")
+        if props is not None:
+          uid = props.get("uid")
+          gid = props.get("gid")
+          mode = props.get("mode")
+          if uid is not None and gid is not None:
+            chown(path, uid, gid)
+          if mode is not None:
+            chmod(path, mode)
     return status, res
 
   def upload(self, path):
-    status, res = _Cloud.upload(self, path, relpath(path, start=self.path))
+    r_path = relpath(path, start=self.path)
+    status, res = _Cloud.upload(self, path, r_path)
     if status:
-      self.h_data[path] = getModified(path)
+      fst = file_info(path)
+      self.h_data[path] = fst.st_mtime
+      _, _ = _Cloud.setProps(self, r_path, uid=fst.st_uid, gid=fst.st_gid, mode=fst.st_mode)
     return status, res
 
   def delete(self, path):
@@ -108,11 +123,6 @@ class Cloud(_Cloud):    # redefined cloud class for implement application level 
     if status:
       self.h_data[path] = True
     return status, res
-
-def getModified(path):
-  ''' returns file modification datetime (in seconds)'''
-  # follow symlink by default ???
-  return file_info(path).st_mtime
 
 def in_paths(path, paths):
   '''Check that path is within one of paths
@@ -210,7 +220,7 @@ class Disk(object):
         print('Finished in %s sec.' % (time() - stime))
         self.updateInfo()
       if status == 'idle':
-        self.cloud.data.save()
+        self.cloud.h_data.save()
         if self.error:
           print('ERROR WAS DETECTED!!!!!!! --> fillSync')
           self.error = False
@@ -262,10 +272,7 @@ class Disk(object):
       if e == 'last':
         print(self.cloudStatus['last'])
       elif e == 'prop':
-        s = ''
-        for t in ['total', 'used', 'trash']:
-          s += ': '.join(t, self.cloudStatus[t])
-        print(s)
+        print(' '.join(': '.join((t, str(self.cloudStatus[t]))) for t in ['total', 'used', 'trash']))
 
   def _submit(self, task, args):
 
@@ -319,11 +326,11 @@ class Disk(object):
                 if hh == i['sha256']:
                   # Cloud and local hashes are equal
                   ignore.add(path)
-                  self.cloud.data[path] = getModified(path)
+                  self.cloud.h_data[path] = file_info(path).st_mtime
                   if p not in ignore:    # add in ignore and history all folders by way to file
                     while p != self.path:
                       ignore.add(p)
-                      self.cloud.data[p] = True
+                      self.cloud.h_data[p] = True
                       p, _ = path_split(p)
                   continue
                 else:
@@ -334,7 +341,7 @@ class Disk(object):
                   # - download if the cloud file newer than the local, or
                   # - upload if the local file newer than the cloud file.
                   c_t = i['modified']                       # cloud file modified date-time
-                  l_t = getModified(path)                   # local file modified date-time
+                  l_t = file_info(path).st_mtime          # local file modified date-time
                   h_t = self.cloud.h_data.get(path, l_t)    # history file modified date-time
                   if l_t > h_t and c_t > h_t:     # conflict
                     print('conflict')
@@ -363,7 +370,7 @@ class Disk(object):
             # The file has to be downloaded or.... deleted from the cloud when local file
             # was deleted and this deletion was not catched by active client (client was not
             # connected to cloud).
-            if self.cloud.data.get(path, False):  # do we have history data for this path?
+            if self.cloud.h_data.get(path, False):  # do we have history data for this path?
               # as we have history info for path but local path doesn't exists then we have to
               # delete it from cloud
               if not pathExists(p):   # containing directory is also removed?
@@ -382,7 +389,7 @@ class Disk(object):
                 if not pathExists(p):
                   self.downloads.add(p)             # store new dir in dowloads to avoud upload
                   makedirs(p, exist_ok=True)
-                  self.cloud.data[p] = True
+                  self.cloud.h_data[p] = True
                 ignore.add(p)
                 self.downloads.add(path)            # store downloaded file in dowloads to avoud upload
                 self._submit(self.cloud.download, (path,))
