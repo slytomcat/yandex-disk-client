@@ -218,7 +218,7 @@ class Cloud(object):
     if status == code:
       r = requests.get(res['href'], stream=True)
       with open(lpath, 'wb') as f:
-        for chunk in r.iter_content(1024):
+        for chunk in r.iter_content(2048):
           f.write(chunk)
       if r.status_code == 200:
         return True, path

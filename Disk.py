@@ -43,13 +43,13 @@ class Cloud(_Cloud):    # redefined cloud class for implement application level 
   def __init__(self, token, hdata, path):
     self.h_data = Config(hdata)       # History data {path: lastModifiedDateTime or True for dir}
     self.path = path
-    _Cloud.__init__(self, token)
+    super().__init__(token)
 
   def getList(self, chunk=None):  # getFullList is a generator that yields file list by chunks
     offset = 0
-    chunk = chunk or 20
+    chunk = chunk or 30
     while True:
-      status, res = _Cloud.getList(self, chunk, offset)
+      status, res = super().getList(chunk, offset)
       if status:
         l = len(res)
         if l:
@@ -71,42 +71,47 @@ class Cloud(_Cloud):    # redefined cloud class for implement application level 
     with tempFile(suffix='.yandex-disk-client', delete=False) as f:
       temp = f.name
     r_path = relpath(path, start=self.path)
-    status, res = _Cloud.download(self, r_path, temp)
+    status, res = super().download(r_path, temp)
     if status:
       try:
         fileMove(temp, path)
       except:
         status = False
       self.h_data[path] = file_info(path).st_mtime
-      st, f_res = _Cloud.getResource(self, r_path)
-      if st:
-        props = item.get("custom_properties")
-        if props is not None:
-          uid = props.get("uid")
-          gid = props.get("gid")
-          mode = props.get("mode")
-          if uid is not None and gid is not None:
-            chown(path, uid, gid)
-          if mode is not None:
-            chmod(path, mode)
+      self.setUGM(path, *self.getUGM(r_path))
     return status, res
+
+  def getUGM(self, r_path):
+    st, f_res = super().getResource(r_path)
+    if st:
+      props = f_res.get("custom_properties")
+      if props is not None:
+        return props.get("uid"), props.get("gid"), props.get("mode")
+    return None, None, None
+
+  def setUGM(self, path, uid, gid, mode):
+    if uid is not None and gid is not None:
+      chown(path, uid, gid)
+    if mode is not None:
+      chmod(path, mode)
+
+  def _storeUGM(self, r_path, fst):
+    return super().setProps(r_path, uid=fst.st_uid, gid=fst.st_gid, mode=fst.st_mode)
+
+  def storeAttrs(self, path):
+    return self._storeUGM(relpath(path, start=self.path), file_info(path))
 
   def upload(self, path):
     r_path = relpath(path, start=self.path)
-    status, res = _Cloud.upload(self, path, r_path)
+    status, res = super().upload(path, r_path)
     if status:
       fst = file_info(path)
       self.h_data[path] = fst.st_mtime
-      _, _ = _Cloud.setProps(self, r_path, uid=fst.st_uid, gid=fst.st_gid, mode=fst.st_mode)
+      self._storeUGM(r_path, fst)
     return status, res
 
-  def storeAttrs(self, path):
-    fst = file_info(path)
-    _, _ = _Cloud.setProps(self, relpath(path, start=self.path),
-                           uid=fst.st_uid, gid=fst.st_gid, mode=fst.st_mode)
-
   def delete(self, path):
-    status, res = _Cloud.delete(self, relpath(path, start=self.path))
+    status, res = super().delete(relpath(path, start=self.path))
     if status:
       # remove all subdirectories and files in the path if path is a directory or
       # remove just the path if it is a file
@@ -118,7 +123,7 @@ class Cloud(_Cloud):    # redefined cloud class for implement application level 
   def move(self, pathfrom, pathto):
     pathto = relpath(pathto, start=self.path)
     pathfrom = relpath(pathfrom, start=self.path)
-    status, res = _Cloud.move(self, pathfrom, pathto)
+    status, res = super().move(pathfrom, pathto)
     if status:
       # move history date too
       self.h_data[pathto] = self.h_data[pathfrom]
@@ -126,7 +131,7 @@ class Cloud(_Cloud):    # redefined cloud class for implement application level 
     return status, res
 
   def mkDir(self, path):
-    status, res = _Cloud.mkDir(self, relpath(path, start=self.path))
+    status, res = super().mkDir(relpath(path, start=self.path))
     if status:
       self.h_data[path] = True
     return status, res
@@ -322,6 +327,10 @@ class Disk(object):
             if pathExists(path):
               if i['type'] != 'file':   # it is existing directory
                 # there is nothing to check for directories
+                # here we may check UGM and if they are different we have to dicide:
+                # - store UGM to cloud or
+                # - restore UGM from cloud
+                # but for this dicission we need last updated data for directories in history
                 ignore.add(path)
                 continue
               else:                     # existig file
@@ -332,6 +341,9 @@ class Disk(object):
                   hh = ''
                 if hh == i['sha256']:
                   # Cloud and local hashes are equal
+                  # here we may check UGM and if they are different we have to dicide:
+                  # - store UGM to cloud or
+                  # - restore UGM from cloud
                   ignore.add(path)
                   self.cloud.h_data[path] = file_info(path).st_mtime
                   if p not in ignore:    # add in ignore and history all folders by way to file
