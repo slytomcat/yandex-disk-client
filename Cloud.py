@@ -130,13 +130,17 @@ class Cloud(object):
       print('setProp returned %d' % status)
       return False, ''
 
-  def getFullList(self, chunk=20, offset=0):
+  def getList(self, chunk=20, offset=0):
     req, code = self.CMD['list']
     status, res = self._request(req, str(chunk), str(offset))
     if status == code:
-      return True, [{key: i[key] if key != 'path' else i[key].replace('disk:/', '')
+      ret = []
+      for i in res['items']:
+        ret.append({key: i[key] if key != 'path' else i[key].replace('disk:/', '')
                      for key in ['path', 'type', 'modified', 'sha256']
-                    } for i in res['items']]
+                    })
+        ret[-1]['custom_properties'] = i.get('custom_properties')
+      return True, ret
     else:
       print('List returned %d' % status)
       return False, ''
@@ -242,8 +246,8 @@ if __name__ == '__main__':
   print('\nMove dir:', c.move('testdir', 'newtestdir'), '\n')
   print('\nDir info:', c.getResource('newtestdir'), '\n')
   print('\nFile info:', c.getResource('Bears.jpg'), '\n')
-  print('\nSetProps:', c.setProps('Bears.jpg', uid=1000, gid=1000, mod=33204))
-  print('\nFile info:', c.getResource('Bears.jpg'), '\n')
+  print('\nSetProps:', c.setProps('Sea.jpg', uid=1000, gid=1000, mod=33204))
+  print('\nFile info:', c.getResource('Sea.jpg'), '\n')
   print('\nDelete Dir:', c.delete('newtestdir'), '\n')
   print('\nCopy big Dir:', c.copy('Music', 'MusicTest'), '\n')
   print('\nMove big Dir:', c.move('MusicTest', 'MusicTest2'), '\n')
@@ -252,7 +256,7 @@ if __name__ == '__main__':
   print('\nEmpty trash:', c.trash(), '\n')
   print('\nDisk Info:', c.getDiskInfo(), '\n')
   print('\nLast:', c.getLast(), '\n')
-  print('\nFull list:', c.getFullList(chunk=5), '\n')
+  print('\nGet list:', c.getList(chunk=5), '\n')
   print('\nUpload:', c.upload('README.md', 'README_.md'), '\n')
   print('\nDownload:', c.download('README_.md', 'README_.md'), '\n')
   print('\nDelete file:', c.delete('README_.md'), '\n')

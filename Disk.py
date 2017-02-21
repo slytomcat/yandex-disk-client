@@ -34,20 +34,22 @@ from shutil import move as fileMove
 class Cloud(_Cloud):    # redefined cloud class for implement application level logic
   ''' - all paths in parameters are absolute paths only
       - download/upload have only 1 parameter - absolute path of file
-      - getFullList converted to generator that yields full list by chunks of paths
+      - getList converted to generator that yields full list by chunks of paths
       - download is performed through the temporary file
-      - history data updates according to the succes operations
+      - upload stores uid, gid, mode of file in custom_properties
+      - download restores uid, gid, mode from custom_properties of file
+      - history data updates according to the success operations
   '''
   def __init__(self, token, hdata, path):
     self.h_data = Config(hdata)       # History data {path: lastModifiedDateTime or True for dir}
     self.path = path
     _Cloud.__init__(self, token)
 
-  def getFullList(self, chunk=None):  # getFullList is a generator that yields file list by chunks
+  def getList(self, chunk=None):  # getFullList is a generator that yields file list by chunks
     offset = 0
     chunk = chunk or 20
     while True:
-      status, res = _Cloud.getFullList(self, chunk, offset)
+      status, res = _Cloud.getList(self, chunk, offset)
       if status:
         l = len(res)
         if l:
@@ -78,7 +80,7 @@ class Cloud(_Cloud):    # redefined cloud class for implement application level 
       self.h_data[path] = file_info(path).st_mtime
       st, f_res = _Cloud.getResource(self, r_path)
       if st:
-        props = f_res.get("custom_properties")
+        props = item.get("custom_properties")
         if props is not None:
           uid = props.get("uid")
           gid = props.get("gid")
@@ -97,6 +99,11 @@ class Cloud(_Cloud):    # redefined cloud class for implement application level 
       self.h_data[path] = fst.st_mtime
       _, _ = _Cloud.setProps(self, r_path, uid=fst.st_uid, gid=fst.st_gid, mode=fst.st_mode)
     return status, res
+
+  def storeAttrs(self, path):
+    fst = file_info(path)
+    _, _ = _Cloud.setProps(self, relpath(path, start=self.path),
+                           uid=fst.st_uid, gid=fst.st_gid, mode=fst.st_mode)
 
   def delete(self, path):
     status, res = _Cloud.delete(self, relpath(path, start=self.path))
@@ -305,7 +312,7 @@ class Disk(object):
       # ({cloud} & {local}) and hashes are equal = ignore
       # ({cloud} & {local}) and hashes not equal -> decide conflict/upload/download depending on
       # the update time of files and time stored in the history
-      for status, items in self.cloud.getFullList(chunk=20):
+      for status, items in self.cloud.getList(chunk=20):
         if status:
           for i in items:
             path = i['path']
@@ -494,13 +501,13 @@ class Disk(object):
         elif event.mask & IN_ATTRIB:
           # do not start upload for downloading file
           if event.pathname not in self.downloads:
-            self._submit(self.cloud.upload, (event.pathname,))
+            self._submit(self.cloud.storeAttrs, (event.pathname,))
 
   class _PathWatcher(Queue):    # iNotify watcher for directory
     '''
     iNotify watcher object for monitor of changes in directory.
     '''
-    FLAGS = IN_MODIFY|IN_DELETE|IN_CREATE|IN_MOVED_FROM|IN_MOVED_TO  #|IN_ATTRIB
+    FLAGS = IN_MODIFY|IN_DELETE|IN_CREATE|IN_MOVED_FROM|IN_MOVED_TO|IN_ATTRIB
 
     def __init__(self, path, exclude = None):
 
@@ -551,7 +558,7 @@ class Disk(object):
       self._setStatus('none')
 
   def trash(self):
-    self._submit(self.cloud.trash)
+    self._submit(self.cloud.trash, ())
 
   def exit(self):
     if self.status != 'none':
