@@ -15,6 +15,9 @@ machine:
   # Add some environment variables
   environment:
     CIRCLE_ENV: test
+
 test:
   override:
     - python3 Cloud.py
+    - python3 jconfig.py
+    - bash disk_test.sh

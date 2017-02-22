@@ -122,16 +122,26 @@ if __name__ == '__main__':
     pass
 
   config = Config(path, load=False)
-  print('len of not loaded config is 0              :', len(config) == 0)
-  print('config.loaded of not loaded config is False:', config.loaded == False)
+  res = []
+  res.append(len(config) == 0)
+  print('len of not loaded config is 0              :', res[-1])
+  res.append(config.loaded == False)
+  print('config.loaded of not loaded config is False:', res[-1])
   config.append(defConf)
-  print('len of appended config is 2                :', len(config) == 2)
-  print('config.cannged of appended config is True  :', config.changed == True)
+  res.append(len(config) == 2)
+  print('len of appended config is 2                :', res[-1])
+  res.append(config.changed == True)
+  print('config.cannged of appended config is True  :', res[-1])
   if config.changed:
     config.save()
-  print('config.cannged of saved config is False    :', config.changed == False)
+  res.append(config.changed == False)
+  print('config.cannged of saved config is False    :', res[-1])
   newConfig = Config(path)
-  print('config.loaded of loaded config is True     :', newConfig.loaded == True)
-  print('comparison test passed                     :', (config == newConfig) == True)
-
+  res.append(newConfig.loaded == True)
+  print('config.loaded of loaded config is True     :', res[-1])
+  res.append((config == newConfig) == True)
+  print('comparison test passed                     :', res[-1])
   remove('cfg.cfg')
+  for stat in res:
+    if not stat:
+      raise NameError('Something wrong with it.')

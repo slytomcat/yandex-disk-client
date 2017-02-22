@@ -584,12 +584,14 @@ class Disk(object):
     self.SU.join()
 
 def appExit(msg=None):
-  print(enumerate())
+  threads = enumerate()
+  print('Threads:', len(threads))
+  print(threads)
   for disk in disks:
     disk.exit()
   print('msg: %s' % msg)
   print(enumerate())
-  input('exit')
+  #input('exit')
   sysExit(msg)
 
 if __name__ == '__main__':
@@ -597,8 +599,8 @@ if __name__ == '__main__':
   from jconfig import Config
   from gettext import translation
   from time import sleep
-  from OAuth import getToken, getLogin
   from os.path import exists as pathExists
+  from os import getenv
   from re import findall
   from signal import signal, SIGTERM, SIGINT
 
@@ -630,43 +632,68 @@ if __name__ == '__main__':
     if disks:
       break
     else:
-      path = ''
-      print(_('No accounts configured'))
-      if input(_('Do you want to configure new account (Y/n):')).lower() not in ('', 'y'):
-        appExit(_('Exit.'))
-      else:
-        while not pathExists(path):
-          path = input(_('Enter the path to local folder '
-                         'which will by synchronized with cloud disk. (Default: ~/YandexDisk):'))
-          path = expanduser(path)
-          if not pathExists(path):
-            try:
-              makedirs(path_join(path, dataFolder), exist_ok=True)
-            except:
-              print('Error: Incorrect folder path specified (no access or wrong path name).')
-        token = getToken('389b4420fc6e4f509cda3b533ca0f3fd', '5145f7a99e7943c28659d769752f6dae')
-        login = getLogin(token)
-        config['disks'][login] = {'login': login, 'auth': token, 'path': path, 'start': True,
-                                  'ro': False, 'ow': False, 'exclude': []}
+      ''' CircleCI integration
+      '''
+      if getenv('CIRCLE_ENV') == 'test':
+        token = getenv('API_TOKEN')
+        config['disks']['stc.yd'] = {'login': 'stc.yd', 'auth': token, 'path': '~/yd', 'start': True,
+                                  'ro': False, 'ow': False, 'exclude': ['excluded_folder']}
         config.save()
+      else:
+        ''' standard flow with user interaction (CLI mode)
+        '''
+        from OAuth import getToken, getLogin
+
+        path = ''
+        print(_('No accounts configured'))
+        if input(_('Do you want to configure new account (Y/n):')).lower() not in ('', 'y'):
+          appExit(_('Exit.'))
+        else:
+          while not pathExists(path):
+            path = input(_('Enter the path to local folder '
+                           'which will by synchronized with cloud disk. (Default: ~/YandexDisk):'))
+            if not path:
+              path = '~/YandexDisk'
+            path = expanduser(path)
+            if not pathExists(path):
+              try:
+                makedirs(path_join(path, dataFolder), exist_ok=True)
+              except:
+                print('Error: Incorrect folder path specified (no access or wrong path name).')
+          token = getToken('389b4420fc6e4f509cda3b533ca0f3fd', '5145f7a99e7943c28659d769752f6dae')
+          login = getLogin(token)
+          config['disks'][login] = {'login': login, 'auth': token, 'path': path, 'start': True,
+                                    'ro': False, 'ow': False, 'exclude': []}
+          config.save()
 
   signal(SIGTERM, lambda _signo, _stack_frame: appExit('Killed'))
   signal(SIGINT, lambda _signo, _stack_frame: appExit('CTRL-C Pressed'))
 
   # main thread.
-  print('Commands:\n с - connect\n d - disconnect\n s - get status\n t - clear trash\n'
-        ' e - exit\n ')
-  while True:
-    cmd = input()
-    if cmd == 'd':
-      disks[0].disconnect()
-    elif cmd == 'c':
-      disks[0].connect()
-    elif cmd == 't':
-      print(disks[0].trash())
-    elif cmd == 's':
-      print(disks[0].getStatus())
-    elif cmd == 'f':
-      disks[0].fullSync()
-    elif cmd == 'e':
-      appExit()
+  if getenv('CIRCLE_ENV') == 'test':
+    sleep(60)
+    print("--- Manual fillSync ---")
+    disks[0].fullSync()
+    sleep(60)
+    print("--- Manual trash clean ---")
+    disks[0].trash()
+    sleep(20)
+    print("--- Exiting ---")
+    appExit()
+  else:
+    print('Commands:\n с - connect\n d - disconnect\n s - get status\n t - clear trash\n'
+          ' e - exit\n ')
+    while True:
+      cmd = input()
+      if cmd == 'd':
+        disks[0].disconnect()
+      elif cmd == 'c':
+        disks[0].connect()
+      elif cmd == 't':
+        print(disks[0].trash())
+      elif cmd == 's':
+        print(disks[0].getStatus())
+      elif cmd == 'f':
+        disks[0].fullSync()
+      elif cmd == 'e':
+        appExit()
