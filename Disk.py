@@ -669,7 +669,11 @@ if __name__ == '__main__':
 
   # main thread.
   if getenv('CIRCLE_ENV') == 'test':
-    sleep(120)
+    sleep(60)
+    disks[0].fullSync()
+    sleep(60)
+    disks[0].trash()
+    sleep(20)
     appExit()
   else:
     print('Commands:\n с - connect\n d - disconnect\n s - get status\n t - clear trash\n'
