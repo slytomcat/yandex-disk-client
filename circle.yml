@@ -1,0 +1,20 @@
+## Customize the test machine
+machine:
+
+  # Version of python to use
+  python:
+    version: 3.5.2
+  post:
+    - pyenv global 3.5.2    
+
+  # Override /etc/hosts
+  hosts:
+    circlehost: 127.0.0.1
+    dev.mycompany.com: 127.0.0.1
+
+  # Add some environment variables
+  environment:
+    CIRCLE_ENV: test
+test:
+  override:
+    python3 Cloud.py
