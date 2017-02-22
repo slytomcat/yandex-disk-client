@@ -235,10 +235,11 @@ if __name__ == '__main__':
     '''Local test token have to be store_requestd in file 'OAuth.info' with following format:
            devtoken:  <OAuth token>
     '''
-    with open('OAuth.info', 'rt') as f:
-      token = findall(r'devtoken: (.*)', f.read())[0].strip()
-      #print ('Token: %s'%(token))
-    if not token:
+    try:
+      with open('OAuth.info', 'rt') as f:
+        token = findall(r'devtoken: (.*)', f.read())[0].strip()
+        #print ('Token: %s'%(token))
+    except:
       ''' CircleCi token is in the environment variable API_TOKEN
       '''
       from os import getenv
