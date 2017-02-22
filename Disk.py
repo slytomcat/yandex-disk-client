@@ -634,7 +634,7 @@ if __name__ == '__main__':
       '''
       if getenv('CIRCLE_ENV') == 'test':
         token = getenv('API_TOKEN')
-        config['disks'][login] = {'login': 'stc.yd', 'auth': token, 'path': '~/yd', 'start': True,
+        config['disks']['stc.yd'] = {'login': 'stc.yd', 'auth': token, 'path': '~/yd', 'start': True,
                                   'ro': False, 'ow': False, 'exclude': ['excluded_folder']}
         config.save()
       else:
