@@ -670,8 +670,10 @@ if __name__ == '__main__':
   # main thread.
   if getenv('CIRCLE_ENV') == 'test':
     sleep(60)
+    print("--- Manual fillSync ---")
     disks[0].fullSync()
     sleep(60)
+    print("--- Manual trash clean ---")
     disks[0].trash()
     sleep(20)
     appExit()
