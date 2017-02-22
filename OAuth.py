@@ -43,7 +43,7 @@ def getToken(app_id, app_secret, gui=False):
            " doesn't happen then copy link below and paste into your web-browser.\n")
   msg2 = _("\nAfter authorization you'll receive the confirmation code. Copy/paste the code "
            "below and press Enter\n\n")
-  msg3 = _("Enter the confirmation code here:")
+  msg3 = _("Enter the confirmation code here: ")
 
   url = ('https://oauth.yandex.ru/authorize?' + '&'.join((
            'response_type=code',                   # 'token' itself  or 'code' for token request
@@ -91,8 +91,8 @@ def getLogin(token):
 if __name__ == '__main__':
   '''Test ID and secret have to be stored in file 'OAuth.info' in following format:
          AppID: <Application ID>
-         AppSecret: <Application password>'''
-
+         AppSecret: <Application password>
+  '''
   with open('OAuth.info', 'rt') as f:
     buf = f.read()
   ID = findall(r'AppID: (.*)', buf)[0].strip()
@@ -100,5 +100,12 @@ if __name__ == '__main__':
 
   token = getToken(ID, secret)
   login = getLogin(token)
+
+  '''Test token have to be stored in file 'OAuth.info' in following format:
+         devtoken: <OAuth token>
+  '''
+  re.sub(r'devtoken: \S*', 'devtoken: %s' % token, buf)
+  with open('OAuth.info', 'wt') as f:
+    f.write(buf)
 
   print(login, token)
