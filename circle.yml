@@ -17,4 +17,4 @@ machine:
     CIRCLE_ENV: test
 test:
   override:
-    python3 Cloud.py
+    - python3 Cloud.py
