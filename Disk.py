@@ -668,19 +668,23 @@ if __name__ == '__main__':
   signal(SIGINT, lambda _signo, _stack_frame: appExit('CTRL-C Pressed'))
 
   # main thread.
-  print('Commands:\n с - connect\n d - disconnect\n s - get status\n t - clear trash\n'
-        ' e - exit\n ')
-  while True:
-    cmd = input()
-    if cmd == 'd':
-      disks[0].disconnect()
-    elif cmd == 'c':
-      disks[0].connect()
-    elif cmd == 't':
-      print(disks[0].trash())
-    elif cmd == 's':
-      print(disks[0].getStatus())
-    elif cmd == 'f':
-      disks[0].fullSync()
-    elif cmd == 'e':
-      appExit()
+  if getenv('CIRCLE_ENV') == 'test':
+    sleep(60)
+    appExit()
+  else:
+    print('Commands:\n с - connect\n d - disconnect\n s - get status\n t - clear trash\n'
+          ' e - exit\n ')
+    while True:
+      cmd = input()
+      if cmd == 'd':
+        disks[0].disconnect()
+      elif cmd == 'c':
+        disks[0].connect()
+      elif cmd == 't':
+        print(disks[0].trash())
+      elif cmd == 's':
+        print(disks[0].getStatus())
+      elif cmd == 'f':
+        disks[0].fullSync()
+      elif cmd == 'e':
+        appExit()
