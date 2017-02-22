@@ -15,8 +15,8 @@ machine:
   # Add some environment variables
   environment:
     CIRCLE_ENV: test
+
 test:
   override:
-    - python3 Cloud.py
-    - python3 jconfig.py
-    - bash disk_test.sh
+    - case $CIRCLE_NODE_INDEX in 0) python3 Cloud.py; python3 jconfig.py ;; 1) bash disk_test.sh ;; esac:
+        parallel: true

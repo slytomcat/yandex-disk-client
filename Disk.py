@@ -584,12 +584,14 @@ class Disk(object):
     self.SU.join()
 
 def appExit(msg=None):
-  print(enumerate())
+  treads = enumerate()
+  print('Threads:', len(threads))
+  print(threads)
   for disk in disks:
     disk.exit()
   print('msg: %s' % msg)
   print(enumerate())
-  input('exit')
+  #input('exit')
   sysExit(msg)
 
 if __name__ == '__main__':
@@ -676,6 +678,7 @@ if __name__ == '__main__':
     print("--- Manual trash clean ---")
     disks[0].trash()
     sleep(20)
+    print("--- Exiting ---")
     appExit()
   else:
     print('Commands:\n с - connect\n d - disconnect\n s - get status\n t - clear trash\n'
