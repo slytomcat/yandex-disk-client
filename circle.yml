@@ -19,3 +19,4 @@ test:
   override:
     - python3 Cloud.py
     - python3 jconfig.py
+    - bash disk_test.sh

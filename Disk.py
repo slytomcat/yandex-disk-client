@@ -18,7 +18,7 @@
 #  You should have received a copy of the GNU General Public License
 #  along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-from os import remove, makedirs, walk, stat as file_info, chown, chmod
+from os import remove, makedirs, getenv, walk, stat as file_info, chown, chmod
 from os.path import join as path_join, expanduser, relpath, split as path_split
 from pyinotify import ProcessEvent, WatchManager, Notifier, ThreadedNotifier, ExcludeFilter,\
                       IN_MODIFY, IN_DELETE, IN_CREATE, IN_MOVED_FROM, IN_MOVED_TO, IN_ATTRIB
@@ -597,7 +597,6 @@ if __name__ == '__main__':
   from jconfig import Config
   from gettext import translation
   from time import sleep
-  from OAuth import getToken, getLogin
   from os.path import exists as pathExists
   from re import findall
   from signal import signal, SIGTERM, SIGINT
@@ -630,25 +629,39 @@ if __name__ == '__main__':
     if disks:
       break
     else:
-      path = ''
-      print(_('No accounts configured'))
-      if input(_('Do you want to configure new account (Y/n):')).lower() not in ('', 'y'):
-        appExit(_('Exit.'))
-      else:
-        while not pathExists(path):
-          path = input(_('Enter the path to local folder '
-                         'which will by synchronized with cloud disk. (Default: ~/YandexDisk):'))
-          path = expanduser(path)
-          if not pathExists(path):
-            try:
-              makedirs(path_join(path, dataFolder), exist_ok=True)
-            except:
-              print('Error: Incorrect folder path specified (no access or wrong path name).')
-        token = getToken('389b4420fc6e4f509cda3b533ca0f3fd', '5145f7a99e7943c28659d769752f6dae')
-        login = getLogin(token)
-        config['disks'][login] = {'login': login, 'auth': token, 'path': path, 'start': True,
-                                  'ro': False, 'ow': False, 'exclude': []}
+      ''' CircleCI integration
+      '''
+      if os.getenv('CIRCLE_ENV') = 'test':
+        token = getenv('API_TOKEN')
+        config['disks'][login] = {'login': 'stc.yd', 'auth': token, 'path': '~/yd', 'start': True,
+                                  'ro': False, 'ow': False, 'exclude': ['excluded_folder']}
         config.save()
+      else:
+        ''' standard flow with user interaction (CLI mode)
+        '''
+        from OAuth import getToken, getLogin
+
+        path = ''
+        print(_('No accounts configured'))
+        if input(_('Do you want to configure new account (Y/n):')).lower() not in ('', 'y'):
+          appExit(_('Exit.'))
+        else:
+          while not pathExists(path):
+            path = input(_('Enter the path to local folder '
+                           'which will by synchronized with cloud disk. (Default: ~/YandexDisk):'))
+            if not path:
+              path = '~/YandexDisk'
+            path = expanduser(path)
+            if not pathExists(path):
+              try:
+                makedirs(path_join(path, dataFolder), exist_ok=True)
+              except:
+                print('Error: Incorrect folder path specified (no access or wrong path name).')
+          token = getToken('389b4420fc6e4f509cda3b533ca0f3fd', '5145f7a99e7943c28659d769752f6dae')
+          login = getLogin(token)
+          config['disks'][login] = {'login': login, 'auth': token, 'path': path, 'start': True,
+                                    'ro': False, 'ow': False, 'exclude': []}
+          config.save()
 
   signal(SIGTERM, lambda _signo, _stack_frame: appExit('Killed'))
   signal(SIGINT, lambda _signo, _stack_frame: appExit('CTRL-C Pressed'))
