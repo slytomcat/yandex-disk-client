@@ -18,7 +18,7 @@
 #  You should have received a copy of the GNU General Public License
 #  along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-from os import remove, makedirs, getenv, walk, stat as file_info, chown, chmod
+from os import remove, makedirs, walk, stat as file_info, chown, chmod
 from os.path import join as path_join, expanduser, relpath, split as path_split
 from pyinotify import ProcessEvent, WatchManager, Notifier, ThreadedNotifier, ExcludeFilter,\
                       IN_MODIFY, IN_DELETE, IN_CREATE, IN_MOVED_FROM, IN_MOVED_TO, IN_ATTRIB
@@ -598,6 +598,7 @@ if __name__ == '__main__':
   from gettext import translation
   from time import sleep
   from os.path import exists as pathExists
+  from os import getenv
   from re import findall
   from signal import signal, SIGTERM, SIGINT
 
@@ -631,7 +632,7 @@ if __name__ == '__main__':
     else:
       ''' CircleCI integration
       '''
-      if os.getenv('CIRCLE_ENV') == 'test':
+      if getenv('CIRCLE_ENV') == 'test':
         token = getenv('API_TOKEN')
         config['disks'][login] = {'login': 'stc.yd', 'auth': token, 'path': '~/yd', 'start': True,
                                   'ro': False, 'ow': False, 'exclude': ['excluded_folder']}
