@@ -584,7 +584,7 @@ class Disk(object):
     self.SU.join()
 
 def appExit(msg=None):
-  treads = enumerate()
+  threads = enumerate()
   print('Threads:', len(threads))
   print(threads)
   for disk in disks:
