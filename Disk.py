@@ -631,7 +631,7 @@ if __name__ == '__main__':
     else:
       ''' CircleCI integration
       '''
-      if os.getenv('CIRCLE_ENV') = 'test':
+      if os.getenv('CIRCLE_ENV') == 'test':
         token = getenv('API_TOKEN')
         config['disks'][login] = {'login': 'stc.yd', 'auth': token, 'path': '~/yd', 'start': True,
                                   'ro': False, 'ow': False, 'exclude': ['excluded_folder']}
