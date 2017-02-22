@@ -261,7 +261,7 @@ if __name__ == '__main__':
   print('\nFile info:', res[-1], '\n')
   res.append(c.setProps('Sea.jpg', uid=1000, gid=1000, mod=33204))
   print('\nSetProps:', res[-1], '\n')
-  res.append(c.getResource('Sea1.jpg'))
+  res.append(c.getResource('Sea.jpg'))
   print('\nFile info:', res[-1], '\n')
   res.append(c.delete('newtestdir'))
   print('\nDelete Dir:', res[-1], '\n')
