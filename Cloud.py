@@ -228,37 +228,68 @@ class Cloud(object):
     return False, path
 
 if __name__ == '__main__':
+  from os import remove
 
   def getToken():
     from re import findall
-    '''Test token have to be store_requestd in file 'OAuth.info' with following format:
+    '''Local test token have to be store_requestd in file 'OAuth.info' with following format:
            devtoken:  <OAuth token>
     '''
-    with open('OAuth.info', 'rt') as f:
-      token = findall(r'devtoken: (.*)', f.read())[0].strip()
-      print ('Token: %s'%(token))
+    try:
+      with open('OAuth.info', 'rt') as f:
+        token = findall(r'devtoken: (.*)', f.read())[0].strip()
+        #print ('Token: %s'%(token))
+    except:
+      ''' CircleCi token is in the environment variable API_TOKEN
+      '''
+      from os import getenv
+      token = getenv('API_TOKEN')
+
     return token
 
   c = Cloud(getToken())
-
-  print('\nDisk Info:', c.getDiskInfo(), '\n')
-  print('\nNew dir:', c.mkDir('testdir'), '\n')
-  print('\nMove dir:', c.move('testdir', 'newtestdir'), '\n')
-  print('\nDir info:', c.getResource('newtestdir'), '\n')
-  print('\nFile info:', c.getResource('Bears.jpg'), '\n')
-  print('\nSetProps:', c.setProps('Sea.jpg', uid=1000, gid=1000, mod=33204))
-  print('\nFile info:', c.getResource('Sea.jpg'), '\n')
-  print('\nDelete Dir:', c.delete('newtestdir'), '\n')
-  print('\nCopy big Dir:', c.copy('Music', 'MusicTest'), '\n')
-  print('\nMove big Dir:', c.move('MusicTest', 'MusicTest2'), '\n')
-  print('\nDelete big Dir:', c.delete('MusicTest2'), '\n')
-  print('\nDisk Info:', c.getDiskInfo(), '\n')
-  print('\nEmpty trash:', c.trash(), '\n')
-  print('\nDisk Info:', c.getDiskInfo(), '\n')
-  print('\nLast:', c.getLast(), '\n')
-  print('\nGet list:', c.getList(chunk=5), '\n')
-  print('\nUpload:', c.upload('README.md', 'README_.md'), '\n')
-  print('\nDownload:', c.download('README_.md', 'README_.md'), '\n')
-  print('\nDelete file:', c.delete('README_.md'), '\n')
+  res = []
+  res.append(c.getDiskInfo())
+  print('\nDisk Info:', res[-1], '\n')
+  res.append(c.mkDir('testdir'))
+  print('\nNew dir:', res[-1], '\n')
+  res.append(c.move('testdir', 'newtestdir'))
+  print('\nMove dir:', res[-1], '\n')
+  res.append(c.getResource('newtestdir'))
+  print('\nDir info:', res[-1], '\n')
+  res.append(c.getResource('Bears.jpg'))
+  print('\nFile info:', res[-1], '\n')
+  res.append(c.setProps('Sea.jpg', uid=1000, gid=1000, mod=33204))
+  print('\nSetProps:', res[-1], '\n')
+  res.append(c.getResource('Sea.jpg'))
+  print('\nFile info:', res[-1], '\n')
+  res.append(c.delete('newtestdir'))
+  print('\nDelete Dir:', res[-1], '\n')
+  res.append(c.copy('Music', 'MusicTest'))
+  print('\nCopy big Dir:', res[-1], '\n')
+  res.append(c.move('MusicTest', 'MusicTest2'))
+  print('\nMove big Dir:', res[-1], '\n')
+  res.append(c.delete('MusicTest2'))
+  print('\nDelete big Dir:', res[-1], '\n')
+  res.append(c.getDiskInfo())
+  print('\nDisk Info:', res[-1], '\n')
+  res.append(c.trash())
+  print('\nEmpty trash:', res[-1], '\n')
+  res.append(c.getDiskInfo())
+  print('\nDisk Info:', res[-1], '\n')
+  res.append(c.getLast())
+  print('\nLast:', res[-1], '\n')
+  res.append(c.getList(chunk=5))
+  print('\nGet list:', res[-1], '\n')
+  res.append(c.upload('README.md', 'README_.md'))
+  print('\nUpload:', res[-1], '\n')
+  res.append(c.download('README_.md', 'README_.md'))
+  print('\nDownload:', res[-1], '\n')
+  res.append(c.delete('README_.md'))
+  print('\nDelete file:', res[-1], '\n')
+  remove('README_.md')
+  for stat, _ in res:
+    if not stat:
+      raise NameError('Something wrong with it.')
   '''
   '''
