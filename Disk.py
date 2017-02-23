@@ -324,7 +324,8 @@ class Disk(object):
         ret = set()
         while path not in ignore and path != self.path:
           ret.add(path)
-          self.cloud.h_data[path] = int(file_info(path).st_mtime)
+          if pathExists(path):
+            self.cloud.h_data[path] = int(file_info(path).st_mtime)
           path, _ = path_split(path)
         ignore |= ret
         return ret
