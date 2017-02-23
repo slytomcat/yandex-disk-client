@@ -425,7 +425,7 @@ class Disk(object):
             else:   # local file have to be updated (downloaded from the cloud)
               if i['type'] == 'file':
                 if not pathExists(p):
-                  self.downloads += ignore_path_down(p)   # store new dir in dowloads to avoud upload
+                  self.downloads |= ignore_path_down(p)   # store new dir in dowloads to avoud upload
                   makedirs(p, exist_ok=True)
                 ignore.add(p)
                 self.downloads.add(path)            # store downloaded file in dowloads to avoud upload
