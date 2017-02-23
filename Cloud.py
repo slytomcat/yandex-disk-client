@@ -75,19 +75,19 @@ class Cloud(object):
                     'https://cloud-api.yandex.net/v1/disk/resources/download?path={}'),
                    200)}
 
-  def _wait(self, url, path):
+  def _wait(self, url, rets):
     '''waits for asynchronous operation completion '''
     while True:
-      sleep(0.5)  # reasonable pause between continuous requests
+      sleep(0.777)  # reasonable pause between continuous requests
       status, r = self._request((requests.get, url))
       if status == 200:
         if r["status"] == "success":
-          return True, path
+          return True, rets
         else:
           continue
       else:
-        print('Async op [on "%s"] returned %d' % (path, status))
-        return False, path
+        print('Async op ["%s"] returned %d' % (rets, status))
+        return False, rets
 
   def getDiskInfo(self):
     '''Receives cloud disk status information'''
@@ -96,8 +96,8 @@ class Cloud(object):
     if status == code:
       return True, res
     else:
-      print('Info returned %d' % status)
-      return False, status
+      print('info returned %d' % status)
+      return False, 'info'
 
   def getLast(self):
     '''Receives 10 last synchronized items'''
@@ -106,8 +106,8 @@ class Cloud(object):
     if status == code:
       return True, [item['path'].replace('disk:/', '') for item in res['items']]
     else:
-      print('Last10 returned %d' % status)
-      return False, ''
+      print('last returned %d' % status)
+      return False, 'last'
 
   def getResource(self, path):
     req, code = self.CMD['res']
@@ -118,17 +118,18 @@ class Cloud(object):
         del res['items']
       return True, res
     else:
-      print('Resource %s returned %d' % (path, status))
-      return False, path
+      print('res %s returned %d' % (path, status))
+      return False, 'res ' + path
 
   def setProps(self, path, **props):
     req, code = self.CMD['prop']
+    rets = 'prop ' + path
     status, res = self._request(req, path, dt=dumps({"custom_properties": props}))
     if status == code:
-      return True, res
+      return True, rets
     else:
-      print('setProp returned %d' % status)
-      return False, ''
+      print('%s returned %d' % (rets, status))
+      return False, rets
 
   def getList(self, chunk=20, offset=0):
     req, code = self.CMD['list']
@@ -142,78 +143,85 @@ class Cloud(object):
         ret[-1]['custom_properties'] = i.get('custom_properties')
       return True, ret
     else:
-      print('List returned %d' % status)
-      return False, ''
+      print('list returned %d' % status)
+      return False, 'list'
 
   def mkDir(self, path):
     req, code = self.CMD['mkdir']
+    rets = 'mkdir ' + path
     status, res = self._request(req, path)
     if status == code:
-      return True, path
+      return True, rets
     else:
-      print('MkDir %s returned %d' % (path, status))
-      return False, path
+      print('%s returned %d' % (rets, status))
+      return False, rets
 
   def delete(self, path, perm=False):
     req, code = self.CMD['del']
+    rets = 'del ' + path
     status, res = self._request(req, path, 'true' if perm else 'false')
     if status == code:
-      return True, path
+      return True, rets
     elif status == 202:
-      return self._wait(res['href'], path)
+      return self._wait(res['href'], rets)
     else:
-      print('Delete %s returned %d' % (path, status))
-      return False, path
+      print('%s returned %d' % (rets, status))
+      return False, rets
 
   def trash(self):
     req, code = self.CMD['trash']
+    rets = 'trash'
     status, res = self._request(req)
     if status == code:
-      return True, ''
+      return True, rets
     elif status == 202:
-      return self._wait(res['href'], '')
+      return self._wait(res['href'], rets)
     else:
-      print('Trash clean returned %d' % status)
-      return False, ''
+      print('%s returned %d' % (rets, status))
+      return False, rets
 
   def move(self, pathfrom, pathto):
     req, code = self.CMD['move']
+    rets = 'move %s %s' % (pathfrom, pathto)
     status, res = self._request(req, pathfrom, pathto)
     if status == code:
-      return True, pathto
+      return True, rets
     elif status == 202:
-      return self._wait(res['href'], pathto)
+      return self._wait(res['href'], rets)
     else:
-      print('Move %s to %s returned %d' % (pathfrom, pathto, status))
-      return False, pathto
+      print('%s returned %d' % (rets, status))
+      return False, rets
 
   def copy(self, pathfrom, pathto):
     req, code = self.CMD['copy']
+    rets = 'copy %s %s' % (pathfrom, pathto)
     status, res = self._request(req, pathfrom, pathto)
     if status == code:
-      return True, pathto
+      return True, rets
     elif status == 202:
-      return self._wait(res['href'], pathto)
+      return self._wait(res['href'], rets)
     else:
-      print('Copy %s to %s returned %d' % (pathfrom, pathto, status))
-      return False, pathto
+      print('%s returned %d' % (rets, status))
+      return False, rets
 
   def upload(self, lpath, path, ow=True):
     req, code = self.CMD['up']
+    rets = 'up ' + path
     status, res = self._request(req, path, 'true' if ow else 'false')
     if status == code:
       try:
         with open(lpath, 'rb') as f:
           r = requests.put(res['href'], data = f)
         if r.status_code in (201, 200):
-          return True, path
+          return True, rets
       except FileNotFoundError:
         status = 'FileNotFoundError'
-    print('Upload of %s returned %s' % (path, str(status)))
-    return False, path
+    print('%s returned %s' % (rets, str(status)))
+    return False, rets
 
   def download(self, path, lpath):
     req, code = self.CMD['down']
+    rets = 'down ' + path
     status, res = self._request(req, path)
     if status == code:
       r = requests.get(res['href'], stream=True)
@@ -221,11 +229,11 @@ class Cloud(object):
         for chunk in r.iter_content(2048):
           f.write(chunk)
       if r.status_code == 200:
-        return True, path
+        return True, rets
       else:
         status = r.status_code
-    print('Download of %s returned %d' % (path, status))
-    return False, path
+    print('%s returned %d' % (rets, status))
+    return False, rets
 
 if __name__ == '__main__':
   from os import remove

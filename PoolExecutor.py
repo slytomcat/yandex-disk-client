@@ -36,16 +36,7 @@ class Queue(_Queue):
   '''
 
   def unfinished(self):
-    with self.mutex:
-      return self.unfinished_tasks
-
-  '''
-  # I don't really understand what the usage of this ....
-  # WARNING: bad idea to take a private value from imported package
-  def waiters_count(self):
-    with self.all_tasks_done:
-      return len(self.not_empty._waiters)
-  '''
+    return self.unfinished_tasks
 
 def _python_exit():
     global _shutdown

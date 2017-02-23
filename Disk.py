@@ -104,7 +104,7 @@ class Cloud(_Cloud):    # redefined cloud class for implement application level 
   def upload(self, path):
     r_path = relpath(path, start=self.path)
     status, res = super().upload(path, r_path)
-    if status:
+    if status and pathExists(path):
       fst = file_info(path)
       self.h_data[path] = fst.st_mtime
       self._storeUGM(r_path, fst)
@@ -125,9 +125,13 @@ class Cloud(_Cloud):    # redefined cloud class for implement application level 
     pathfrom = relpath(pathfrom, start=self.path)
     status, res = super().move(pathfrom, pathto)
     if status:
-      # move history date too
-      self.h_data[pathto] = self.h_data[pathfrom]
-      self.h_data.pop(pathfrom, None)
+      # update history date too
+      p = self.h_data.pop(pathfrom, None)
+      if p is not None:
+        self.h_data[pathto] = p
+      else:
+        if pathExists(pathto):
+          self.h_data[pathto] = int(file_info(pathto).st_mtime)
     return status, res
 
   def mkDir(self, path):
@@ -230,7 +234,6 @@ class Disk(object):
         stime = time()
       if prevStatus == 'busy':
         print('Finished in %s sec.' % (time() - stime))
-        self.updateInfo()
       if status == 'idle':
         self.cloud.h_data.save()
         if self.error:
@@ -293,13 +296,16 @@ class Disk(object):
       unf = self.executor.unfinished()
       print('Done: %s, %d unfinished' % (str(res), unf))
       if isinstance(res, tuple):
-        stat, path = res      # it is cloud operation
+        stat, rets = res      # it is cloud operation
         if not stat:
           self.error = True
-        if path:
+        if isinstance(rets, str) and rets.startswith('down'):
           # Remove downloaded file from downloads
-          self.downloads -= {path}
-      if unf == 0:
+          self.downloads -= {rets[5:]}
+      elif isinstance(res, str) and res == 'fullSync':
+        pass
+      if unf == 0:  # all done
+        self.downloads = set()  # clear downloads as no more downloads requered
         self._setStatus('idle')
 
     ft = self.executor.submit(task, *args)
@@ -309,15 +315,26 @@ class Disk(object):
     print('submit %s %s' % (str(task) , str(args)))
 
   def fullSync(self):
-    '''Execute full synchronization within PoolExecutor'''
+    '''Execute full synchronization within PoolExecutor
+    '''
+
     def _fullSync(self):
+      def ignore_path_down(path):
+        nonlocal ignore
+        ret = set()
+        while path not in ignore and path != self.path:
+          ret.add(path)
+          self.cloud.h_data[path] = int(file_info(path).st_mtime)
+          path, _ = path_split(path)
+        ignore |= ret
+        return ret
       ignore = set()  # set of files that shouldn't be synced or already in sync
       exclude = set(self.watch.exclude)
       # {colud} - {local} -> download from cloud or delete from cloud if it exist in the history
       # ({cloud} & {local}) and hashes are equal = ignore
       # ({cloud} & {local}) and hashes not equal -> decide conflict/upload/download depending on
       # the update time of files and time stored in the history
-      for status, items in self.cloud.getList(chunk=20):
+      for status, items in self.cloud.getList(chunk=40):
         if status:
           for i in items:
             path = i['path']
@@ -331,7 +348,11 @@ class Disk(object):
                 # - store UGM to cloud or
                 # - restore UGM from cloud
                 # but for this dicission we need last updated data for directories in history
-                ignore.add(path)
+                ####
+                # !!! Actualy Yd don't return empty filders in file list !!!
+                # This section newer run
+                ####
+                ignore_path_down(path)
                 continue
               else:                     # existig file
                 try:
@@ -344,13 +365,7 @@ class Disk(object):
                   # here we may check UGM and if they are different we have to dicide:
                   # - store UGM to cloud or
                   # - restore UGM from cloud
-                  ignore.add(path)
-                  self.cloud.h_data[path] = file_info(path).st_mtime
-                  if p not in ignore:    # add in ignore and history all folders by way to file
-                    while p != self.path:
-                      ignore.add(p)
-                      self.cloud.h_data[p] = True
-                      p, _ = path_split(p)
+                  ignore_path_down(path)  # add in ignore and history all folders by way to file
                   continue
                 else:
                   # Cloud and local files are different. Need to decide what to do: upload,
@@ -360,7 +375,7 @@ class Disk(object):
                   # - download if the cloud file newer than the local, or
                   # - upload if the local file newer than the cloud file.
                   c_t = i['modified']                       # cloud file modified date-time
-                  l_t = file_info(path).st_mtime          # local file modified date-time
+                  l_t = file_info(path).st_mtime            # local file modified date-time
                   h_t = self.cloud.h_data.get(path, l_t)    # history file modified date-time
                   if l_t > h_t and c_t > h_t:     # conflict
                     print('conflict')
@@ -379,11 +394,10 @@ class Disk(object):
                       fileMove(path, path2)  # it will be captered as move from & move to !!!???
                       self._submit(self.cloud.download, (path,))
                       self._submit(self.cloud.upload, (path2,))
-                  elif l_t > c_t:
+                  elif l_t > c_t:  # local time greater than the cloud time
                     # upload (as file exists the dir exists too - no need to create dir in cloud)
                     self._submit(self.cloud.upload, (path,))
-                    ignore.add(path)
-                    ignore.add(p)
+                    ignore_path_down(path)  # add in ignore and history all folders by way to file
                     continue
                   #else:  # download - it is performed below
             # The file has to be downloaded or.... deleted from the cloud when local file
@@ -393,30 +407,33 @@ class Disk(object):
               # as we have history info for path but local path doesn't exists then we have to
               # delete it from cloud
               if not pathExists(p):   # containing directory is also removed?
-                d = p
                 while True:           # go down to the shortest removed directory
-                  p_, _ = path_split(d)
+                  p_, _ = path_split(p)
                   if pathExists(p_):
                     break
-                  d = p_
-                self._submit(self.cloud.delete, (d,))
-                exclude.add(d)        # add deleted dir in exceptions to avoid unnecessary checks
+                  p = p_
+                  del self.cloud.h_data[p]  # remove history
+                  ### !!! all files in this folder mast be romoved too, but we
+                  ### can't walk as files/folders was deleted from local FS!
+                  ### NEED history database to do delete where path.startwith(p) - it can't be done in dict
+                self._submit(self.cloud.delete, (p,))
+                exclude.add(d)        # add d to exceptions to avoid unnecessary checks for other files which are within p
               else:                   # delete only file
                 self._submit(self.cloud.delete, (path,))
+                del self.cloud.h_data[path]  # remove history
             else:   # local file have to be updated (downloaded from the cloud)
               if i['type'] == 'file':
                 if not pathExists(p):
-                  self.downloads.add(p)             # store new dir in dowloads to avoud upload
+                  self.downloads.add(ignore_path_down(p))   # store new dir in dowloads to avoud upload
                   makedirs(p, exist_ok=True)
-                  self.cloud.h_data[p] = True
                 ignore.add(p)
                 self.downloads.add(path)            # store downloaded file in dowloads to avoud upload
                 self._submit(self.cloud.download, (path,))
                 ignore.add(path)
               else:                                 # directory not exists
-                self.downloads.add(path)            # store new dir in dowloads to avoud upload
+                self.downloads.add(ignore_path_down(path))            # store new dir in dowloads to avoud upload
                 makedirs(path, exist_ok=True)
-                ignore.add(path)
+      # ---- Done forward path (from cloud to local) ------
       # (local - ignored) -> upload to cloud
       for root, dirs, files in walk(self.path):
         if in_paths(root, exclude):
@@ -433,6 +450,7 @@ class Disk(object):
           if f not in ignore:
             self._submit(self.cloud.upload, (f,))
       return 'fullSync'
+
     self._submit(_fullSync, (self,))
 
   def _eventHandler(self):      # Thread that handles iNotify watcher events
@@ -441,7 +459,7 @@ class Disk(object):
       if event.dir:
         if event.pathname in self.downloads:
           # this dir was created locally within fullSync it is already exists in the cloud
-          self.downloads -= {event.pathname}
+          self.downloads.remove(event.pathname)
         else:
           # create newly created local dir in the cloud
           if event.mask & IN_MOVED_TO:
@@ -682,7 +700,7 @@ if __name__ == '__main__':
     appExit()
   else:
     print('Commands:\n с - connect\n d - disconnect\n s - get status\n t - clear trash\n'
-          ' e - exit\n ')
+          ' f - full sync\n e - exit\n ')
     while True:
       cmd = input()
       if cmd == 'd':
