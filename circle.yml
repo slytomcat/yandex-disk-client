@@ -18,6 +18,5 @@ machine:
 
 test:
   override:
-    - python3 Cloud.py
-    - python3 jconfig.py
+    - nosetests3
     - bash disk_test.sh

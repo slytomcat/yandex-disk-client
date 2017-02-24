@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 #
 #  jconfig.py
@@ -94,54 +94,3 @@ class Config(dict):
       for key, val in dictVal.items():
         self[key] = val
       self.changed = True
-
-if __name__ == '__main__':
-  # tests
-  from os import remove
-  defConf = {'type': 'std',
-             'disks': {'stc': {'login': 'stc',
-                               'path': '~/ydd',
-                               'auth': '87816741346',
-                               'start': True,
-                               'exclude': ['tests', 'other/private'],
-                               'ro': False,
-                               'ow': False },
-                       'stc1':{'login': 'stc',
-                               'path': '~/yd',
-                               'auth': '84458090987',
-                               'start': True,
-                               'exclude': ['new'],
-                               'ro': True,
-                               'ow': False }
-                      }
-            }
-  path = 'cfg.cfg'
-  try:
-    remove('cfg.cfg')
-  except:
-    pass
-
-  config = Config(path, load=False)
-  res = []
-  res.append(len(config) == 0)
-  print('len of not loaded config is 0              :', res[-1])
-  res.append(config.loaded == False)
-  print('config.loaded of not loaded config is False:', res[-1])
-  config.append(defConf)
-  res.append(len(config) == 2)
-  print('len of appended config is 2                :', res[-1])
-  res.append(config.changed == True)
-  print('config.cannged of appended config is True  :', res[-1])
-  if config.changed:
-    config.save()
-  res.append(config.changed == False)
-  print('config.cannged of saved config is False    :', res[-1])
-  newConfig = Config(path)
-  res.append(newConfig.loaded == True)
-  print('config.loaded of loaded config is True     :', res[-1])
-  res.append((config == newConfig) == True)
-  print('comparison test passed                     :', res[-1])
-  remove('cfg.cfg')
-  for stat in res:
-    if not stat:
-      raise NameError('Something wrong with it.')
