@@ -19,4 +19,4 @@ machine:
 test:
   override:
     - nosetests -v
-#    - bash disk_test.sh
+      parallel: true
