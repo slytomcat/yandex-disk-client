@@ -16,7 +16,7 @@ machine:
   environment:
     CIRCLE_ENV: test
 
-test:
-  override:
-    - nosetests
-    - bash disk_test.sh
+#test:
+#  override:
+#    - nosetests
+#    - bash disk_test.sh
