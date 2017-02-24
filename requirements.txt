@@ -1,2 +1,1 @@
 requests
-python3-nose

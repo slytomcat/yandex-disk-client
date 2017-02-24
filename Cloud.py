@@ -27,11 +27,11 @@ class Cloud(object):
     # make headers for requests that require authorization
     self._headers = {'Accept': 'application/json', 'Authorization': token}
 
-  def _request(self, req, *args, dt=None):
+  def _request(self, req, *args, **kwargs):
     '''Perform the request with expanded URL via specified method using predefined headers
     '''
     method, url = req
-    r = method(url.format(*args), data=dt, headers=self._headers)
+    r = method(url.format(*args), data=kwargs.get('dt'), headers=self._headers)
     return r.status_code, r.json() if r.text else ''
 
   CMD = {'info':  ((requests.get,
