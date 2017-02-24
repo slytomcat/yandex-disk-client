@@ -22,11 +22,13 @@
 #
 
 import unittest
-from subprocess import call
+from subprocess import check_output
+from re import findall
 
 class test_Disk(unittest.TestCase):
-  def testDisk(self):
-    call('./disk_test.sh', shell=True)
+  def test_Disk(self):
+    output = check_output('./disk_test.sh', shell=True)
+    self.assertEqual(len(findall(r'Traceback', output)), 0)
 
 if __name__ == '__main__':
   unittest.main()
