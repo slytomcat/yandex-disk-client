@@ -14,5 +14,5 @@ machine:
 test:
   override:
     - nosetests -v --with-coverage
-        parallel: true
+#        parallel: true
 
