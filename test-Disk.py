@@ -29,7 +29,7 @@ class test_Disk(unittest.TestCase):
   def test_Disk(self):
     output = check_output('bash ./disk_test.sh', shell=True, universal_newlines=True)
     errors = len(findall(r'Traceback', output))
-    self.assertEqual(errors, output)), 0)
+    self.assertEqual(errors, 0)
     if errors:
       print(output)
 
