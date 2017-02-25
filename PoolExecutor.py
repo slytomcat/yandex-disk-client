@@ -43,7 +43,7 @@ def _python_exit():
     _shutdown = True
     items = list(_threads_queues.items())
     if items:
-      items[0][1].put(None)
+        items[0][1].put(None)
     for t, q in items:
         t.join()
 
@@ -134,11 +134,12 @@ class ThreadPoolExecutor(_base.Executor):
         # idle threads than items in the work queue.
         # DONE(Sly_tom_cat): unfinished() is a total amount of currently executed
         # tasks and tasks in queue.
-        if self._work_queue.unfinished() <= len(self._threads):
+        working_threads = len(self._threads)
+        if self._work_queue.unfinished() <= working_threads:
             # When number of threads is greater or equal to unfinished tasks then
             # there is no need to create a new thread.
             return
-        if len(self._threads) < self._max_workers:
+        if working_threads < self._max_workers:
             t = threading.Thread(target=_worker,
                                  args=(weakref.ref(self, weakref_cb),
                                        self._work_queue))
