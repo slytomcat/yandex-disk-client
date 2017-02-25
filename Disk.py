@@ -160,33 +160,34 @@ class Disk(object):
      All working paths within this class are absolute paths.
   '''
   def __init__(self, user):
-    self.user = user
+    self.user = user  # dictionary with user configuration
     self.path = expanduser(self.user['path'])
     self.cloud = Cloud(self.user['auth'],
                        path_join(self.path, dataFolder, 'hist.data'),
                        self.path)
     self.executor = ThreadPoolExecutor()
-    self.shutdown = False
-    self.downloads = set()
-    self.EH = Thread(target=self._eventHandler)
+    self.shutdown = False   # signal for threads to exit
+    self.downloads = set()  # set of currently dowloading files
+    self.EH = Thread(target=self._eventHandler)  # event handler thread
     self.EH.name = 'EventHandler'
+    # i-notify watcher object
     self.watch = self._PathWatcher(self.path,
                                    [path_join(self.path, e)
-                                     for e in self.user['exclude'] + ['.yandex-disk-client']])
+                                     for e in self.user['exclude'] + [dataFolder]])
     self.EH.start()
     #self.listener = XMPPListener('\00'.join(user[login], user[auth]))
     # Status treatment staff
     self.prevStatus = 'none'
     self.status = 'none'
-    self.error = False
+    self.error = False  # error flag. If it is set then fullSync is required
     self.progress = ''
-    self.cloudStatus = dict()
-    self.changes = {'init'}
+    self.cloudStatus = dict()  # dictionary with set of cloud status elements
+    self.changes = {'init'}  # set with changes flags
     self.statusQueue = Queue()
-    self.SU = Thread(target=self._statusUpdater)
+    self.SU = Thread(target=self._statusUpdater)  # individual thread to control changes of status
     self.SU.name = 'StatusUpdater'
     self.SU.start()
-    # connect if it is required
+    # connect to cloud if it is required by configuration
     if self.user.setdefault('start', True):
       self.connect()
 
@@ -375,13 +376,16 @@ class Disk(object):
                   # - download if the cloud file newer than the local, or
                   # - upload if the local file newer than the cloud file.
                   c_t = i['modified']                       # cloud file modified date-time
-                  l_t = file_info(path).st_mtime            # local file modified date-time
+                  l_t = int(file_info(path).st_mtime)       # local file modified date-time
                   h_t = self.cloud.h_data.get(path, l_t)    # history file modified date-time
+                  ###
+                  ### Need more investigation on comparison of date\time of local and cloud files
+                  ###
                   if l_t > h_t and c_t > h_t:     # conflict
                     print('conflict')
-                    continue # as not tested yet
-                    # older file renamed to file.2 and both files --> cloud and local <- NOT TESTED
-                    path2 = path + '.2'
+                    continue # it is not desined and not tested yet
+                    # rename older file to file.older and copy both files --> cloud and local
+                    path2 = path + '.older'
                     ignore.add(path2)
                     ignore.add(path)
                     if l_t > c_t:
@@ -463,9 +467,10 @@ class Disk(object):
         else:
           # create newly created local dir in the cloud
           if event.mask & IN_MOVED_TO:
-            # If moved folder is not empty there is no evets appear for its content.
+            # If moved folder is not empty there is no evets appear for all it's content.
             # So we need to walk inside and upload all directories, subdirectories and files
-            # that are within the moved directory
+            # that are within the moved directory.
+            # Do this task within threadExecutor as it can rather many files inside.
             self._submit(recCreate, (event.pathname, self.watch.exclude, self._submit))
           else:
             self._submit(self.cloud.mkDir, (event.pathname,))
@@ -481,8 +486,12 @@ class Disk(object):
         self._submit(self.cloud.delete, (event.pathname,))
 
     def recCreate(path, exclude, submit):
+      ''' It recursivelly creates folders and files in cloud, starting from specified directory.
+          It itsef executed in threadExecutor and submits files uploads to threadExecutor but
+          directories created by direct calls as it rather fast operation and directories need
+          to be created in advance (before uploading file to them).
+      '''
       s, r = self.cloud.mkDir(path)
-      print('done in-line', s, r)
       for root, dirs, files in walk(path):
         if in_paths(root, exclude):
           break
@@ -510,14 +519,12 @@ class Disk(object):
             if event.cookie == cookie:
               # greate! we've found the move operatin (file moved within the synced path)
               self._submit(self.cloud.move, (event.pathname, event2.pathname))
-              break
+              break  # as ve alredy treated two MOVED events
             else:
-              moved(event)
-              event = event2
-              if not (event.mask & IN_MOVED_FROM | IN_MOVED_TO):
-                break     # treat it as not IN_MOVED* event
+              moved(event)  # treat first event as standalone
+              event = event2  # treat second event
           except Empty:
-            moved(event)
+            moved(event)  # treat first event as standalone
             break
         # treat not IN_MOVE event
         if event.mask & IN_CREATE:
@@ -529,7 +536,7 @@ class Disk(object):
           if event.pathname not in self.downloads:
             self._submit(self.cloud.upload, (event.pathname,))
         elif event.mask & IN_ATTRIB:
-          # do not start upload for downloading file
+          # do not update cloud properties for downloading file
           if event.pathname not in self.downloads:
             self._submit(self.cloud.storeAttrs, (event.pathname,))
 
@@ -566,6 +573,7 @@ class Disk(object):
       self._wm.rm_watch(self._watch[self._path], rec=True)
 
     def exit(self):
+      self.stop()
       self._iNotifier.stop()
 
   def connect(self):
@@ -575,7 +583,6 @@ class Disk(object):
       self.watch.start()
       if self.cloud.getDiskInfo()[0]:
         #self.listener.start()
-        #self._setStatus('idle')
         self.fullSync()
       else:
         self._setStatus('error')
