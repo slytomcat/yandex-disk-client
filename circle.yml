@@ -19,4 +19,3 @@ machine:
 test:
   override:
     - nosetests -v
-      parallel: true
