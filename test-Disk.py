@@ -27,7 +27,7 @@ from re import findall
 
 class test_Disk(unittest.TestCase):
   def test_Disk(self):
-    output = check_output('bash ./disk_test.sh', shell=True)
+    output = check_output('bash ./disk_test.sh', shell=True, universal_newlines=True)
     self.assertEqual(len(findall(r'Traceback', output)), 0)
 
 if __name__ == '__main__':
