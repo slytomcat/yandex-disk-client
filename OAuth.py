@@ -46,10 +46,10 @@ def getToken(app_id, app_secret, gui=False):
   msg3 = _("Enter the confirmation code here: ")
 
   url = ('https://oauth.yandex.ru/authorize?' + '&'.join((
-           'response_type=code',                   # 'token' itself  or 'code' for token request
+           'response_type=code',                  # 'token' itself  or 'code' for token request
            'client_id=%s' % app_id,               # application identificator
-           'display=popup',                       # popup - no additional decoration on the page
-           'device_name=%s' % uname().nodename))  # device name (host name)
+           #'device_name=%s' % uname().nodename)), # device name (host name)
+           'display=popup'                        # popup - no additional decoration on the page
         )
   while token == '':
     call(['xdg-open', url], stdout=DEVNULL, stderr= DEVNULL)
@@ -70,10 +70,10 @@ def getToken(app_id, app_secret, gui=False):
       code = input(msg3)
     r = requests.post('https://oauth.yandex.ru/token',
                       {'grant_type': 'authorization_code',
+                       #'device_name': uname().nodename,
                        'code': code,
                        'client_id': app_id,
-                       'client_secret': app_secret,
-                       'device_name': host
+                       'client_secret': app_secret
                       })
     if r.status_code == 200:
       token = r.json()['access_token']
@@ -100,6 +100,7 @@ if __name__ == '__main__':
 
   token = getToken(ID, secret)
   login = getLogin(token)
+  print(login, token)
 
   '''Test token have to be stored in file 'OAuth.info' in following format:
          devtoken: <OAuth token>
@@ -107,5 +108,3 @@ if __name__ == '__main__':
   re.sub(r'devtoken: \S*', 'devtoken: %s' % token, buf)
   with open('OAuth.info', 'wt') as f:
     f.write(buf)
-
-  print(login, token)

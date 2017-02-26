@@ -22,16 +22,39 @@
 #
 
 import unittest
-from subprocess import check_output
+from subprocess import call
 from re import findall
+from Disk import Disk
+from time import sleep
+from os import getenv
+from threading import enumerate
+CIRCLE_ENV = getenv('CIRCLE_ENV') == 'test'
 
 class test_Disk(unittest.TestCase):
-  def test_Disk(self):
-    output = check_output('bash ./disk_test.sh', shell=True, universal_newlines=True)
-    errors = len(findall(r'Traceback', output))
-    self.assertEqual(errors, 0)
-    if errors:
-      print(output)
+
+  @unittest.skipUnless(CIRCLE_ENV, "Only for CircleCI environment")
+  def test_1_InitialSync(self):
+    self.Disk = Disk({'login': 'stc.yd', 'auth': getenv('API_TOKEN'), 'path': '~/yd', 'start': True,
+                      'ro': False, 'ow': False, 'exclude': ['excluded_folder']})
+    sleep(60)
+    self.assumeTrue(self.Disk.status == 'idle')
+
+  @unittest.skipUnless(CIRCLE_ENV, "Only for CircleCI environment")
+  def test_2_TestSequence(self):
+    call(['bash', '/home/ubuntu/yd/test.sh'])
+    sleep(30)
+    self.assumeTrue(self.Disk.status == 'idle')
+
+  @unittest.skipUnless(CIRCLE_ENV, "Only for CircleCI environment")
+  def test_3_Trush(self):
+    self.disk.trash()
+    sleep(10)
+    self.assumeTrue(self.Disk.status == 'idle')
+
+  @unittest.skipUnless(CIRCLE_ENV, "Only for CircleCI environment")
+  def test_4_Exit(self):
+    self.disk.exit()
+    self.assumeEqual(len(enumerate()), 1)
 
 if __name__ == '__main__':
   unittest.main()

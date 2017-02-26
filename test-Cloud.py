@@ -33,11 +33,10 @@ class test_Cloud(unittest.TestCase):
       '''
       with open('OAuth.info', 'rt') as f:
         token = findall(r'devtoken: (.*)', f.read())[0].strip()
-        #print ('Token: %s'%(token))
     except:
-      ''' CircleCi token is in the environment variable API_TOKEN
+      ''' CircleCi token is in the environment variable CLOUD_TOKEN
       '''
-      token = getenv('API_TOKEN')
+      token = getenv('CLOUD_TOKEN')
     self.cloud = Cloud(token)
 
   def test_DiskInfo(self):
@@ -55,20 +54,27 @@ class test_Cloud(unittest.TestCase):
     stat, res = self.cloud.delete('newtestdir')
     self.assertTrue(stat)
 
-  def test_bigDir_ops(self):
+  def test_bigDir_1copy(self):
     stat, res = self.cloud.copy('Music', 'MusicTest')
     self.assertTrue(stat)
-    stat, res = self.cloud.move('MusicTest', 'MusicTest2')
-    self.assertTrue(stat)
-    stat, res = self.cloud.delete('MusicTest2')
+
+  def test_bigDir_2move(self):
+    stat, res = self.cloud.move('MusicTest', 'MusicTestTest')
     self.assertTrue(stat)
 
-  def test_props(self):
+  def test_bigDir_3delete(self):
+    stat, res = self.cloud.delete('MusicTestTest')
+    self.assertTrue(stat)
+
+  def test_props_1set(self):
     stat, res = self.cloud.setProps('Sea.jpg', uid=1000, gid=1000, mode=33204)
     self.assertTrue(stat)
+
+  def test_props_2get(self):
     stat, res = self.cloud.getResource('Sea.jpg')
     self.assertTrue(stat)
     props = res.get("custom_properties")
+    self.assertFalse(props is None)
     self.assertEqual(props.get('uid'), 1000)
     self.assertEqual(props.get('gid'), 1000)
     self.assertEqual(props.get('mode'), 33204)
@@ -80,14 +86,15 @@ class test_Cloud(unittest.TestCase):
     self.assertTrue(stat)
     self.assertEqual(res.get('trash_size'), 0)
 
-  def test_up_down(self):
-    stat, res = self.cloud.upload('README.md', 'README_.md')
+  def test_up_down1_up(self):
+    stat, res = self.cloud.upload('README.md', 'README.md')
     self.assertTrue(stat)
-    self.cloud.download('README_.md', 'README_.md')
+
+  def test_up_down2_down(self):
+    stat, res = self.cloud.download('README.md', '/tmp/README.md')
     self.assertTrue(stat)
-    remove('README_.md')
-    stat, res = self.cloud.delete('README_.md')
-    self.assertTrue(stat)
+    remove('/tmp/README.md')
+    self.cloud.delete('README.md')
 
   def test_last(self):
     stat, res = self.cloud.getLast()
