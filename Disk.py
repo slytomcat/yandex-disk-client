@@ -25,6 +25,7 @@ from threading import Thread, Event, enumerate
 from queue import Queue, Empty
 from PoolExecutor import ThreadPoolExecutor
 from Cloud import Cloud as _Cloud
+from jconfig import Config
 from hashlib import sha256
 from tempfile import NamedTemporaryFile as tempFile
 from shutil import move as fileMove
@@ -666,7 +667,6 @@ def appExit(msg=None):
 
 if __name__ == '__main__':
   from sys import exit as sysExit
-  from jconfig import Config
   from gettext import translation
   from os import getenv
   from re import findall
