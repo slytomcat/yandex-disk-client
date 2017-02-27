@@ -603,18 +603,24 @@ class Disk(object):
       self._wm = WatchManager()
       self._iNotifier = ThreadedNotifier(self._wm, _EH(), timeout=10)
       self._iNotifier.start()
-
+      self.started = False
+      self._watch = []
 
     def start(self, exclude = None):
-      # Add watch and start watching
-      # Update exlude filter if it provided in call of start method
-      self.exclude = exclude or self.exclude
-      self._watch = self._wm.add_watch(self._path, self.FLAGS,
+      if not self.started:
+        # Add watch and start watching
+        # Update exlude filter if it provided in call of start method
+        self.exclude = exclude or self.exclude
+        self._watch = self._wm.add_watch(self._path, self.FLAGS,
                                        exclude_filter=ExcludeFilter(self.exclude),
                                        auto_add=True, rec=True, do_glob=False)
+        self.started = True
+
     def stop(self):
-      # Remove watch and stop watching
-      self._wm.rm_watch(self._watch[self._path], rec=True)
+      if self.started:
+        # Remove watch and stop watching
+        self._wm.rm_watch(self._watch[self._path], rec=True)
+        self.started = False
 
     def exit(self):
       self.stop()
@@ -654,6 +660,7 @@ class Disk(object):
       self.executor.shutdown(wait=True)
     self._setStatus('exit')
     self.SU.join()
+    return 0
 
 def appExit(msg=None):
   threads = enumerate()

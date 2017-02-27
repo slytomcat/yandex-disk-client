@@ -29,17 +29,17 @@ from time import sleep
 from os import getenv
 from threading import enumerate
 CIRCLE_ENV = getenv('CIRCLE_ENV') == 'test'
+DISK = None
 
 class test_Disk(unittest.TestCase):
 
   @unittest.skipUnless(CIRCLE_ENV, "Only for CircleCI environment")
   def test_00_notStarted(self):
-    self.Disk = Disk({'login': 'stc.yd', 'auth': getenv('API_TOKEN'), 'path': '~/yd', 'start': False,
-                      'ro': False, 'ow': False, 'exclude': ['excluded_folder']})
+    DISK = Disk({'login': 'stc.yd', 'auth': getenv('API_TOKEN'), 'path': '~/yd', 'start': False,
+                 'ro': False, 'ow': False, 'exclude': ['excluded_folder']})
     sleep(10)
-    self.assertTrue(self.Disk.status == 'none')
-    self.Disk.exit()
-    self.assertEqual(len(enumerate()), 1)
+    self.assertTrue(DISK.status == 'none')
+    self.assertEqual(DISK.exit(), 0)
 
   @unittest.skipUnless(CIRCLE_ENV, "Only for CircleCI environment")
   def test_01_noAccess(self):
@@ -75,8 +75,7 @@ class test_Disk(unittest.TestCase):
   @unittest.skipUnless(CIRCLE_ENV, "Only for CircleCI environment")
   def test_4_Exit(self):
     global Disk
-    Disk.exit()
-    self.assumeEqual(len(enumerate()), 1)
+    self.assertEqual(Disk.exit(), 0)
 
 if __name__ == '__main__':
   unittest.main()
