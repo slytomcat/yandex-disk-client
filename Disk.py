@@ -2,7 +2,7 @@
 #
 # Yandex.disk client engine
 #
-#  Copyright 2016 Sly_tom_cat <slytomcat@mail.ru>
+#  Copyright 2016,2017 Sly_tom_cat <slytomcat@mail.ru>
 #
 #  This program is free software; you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -17,7 +17,7 @@
 #  You should have received a copy of the GNU General Public License
 #  along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-from os import remove, makedirs, walk, stat as file_info, chown, chmod
+from os import remove, makedirs, walk, stat as file_info, chown, chmod, utime
 from os.path import join as path_join, expanduser, relpath, split as path_split
 from pyinotify import ProcessEvent, WatchManager, Notifier, ThreadedNotifier, ExcludeFilter,\
                       IN_MODIFY, IN_DELETE, IN_CREATE, IN_MOVED_FROM, IN_MOVED_TO, IN_ATTRIB
@@ -25,22 +25,33 @@ from threading import Thread, Event, enumerate
 from queue import Queue, Empty
 from PoolExecutor import ThreadPoolExecutor
 from Cloud import Cloud as _Cloud
-from time import time, gmtime, strptime, mktime
 from hashlib import sha256
 from tempfile import NamedTemporaryFile as tempFile
 from shutil import move as fileMove
+from datetime import datetime
+from time import time
+
+def in_paths(path, paths):
+  '''Check that path is within one of paths
+     Ehamples:
+        /home/disk/folder1/ex_folder/some_flie is within /home/disk/folder1/ex_folder,
+        but not within /home/disk/folder2'''
+  for p in paths:
+    if path.startswith(p):
+      return True         # yes if p is a left part of checked path
+  return False
 
 class Cloud(_Cloud):    # redefined cloud class for implement application level logic
   ''' - all paths in parameters are absolute paths only
       - download/upload have only 1 parameter - absolute path of file
-      - getList converted to generator that yields full list by chunks of paths
+      - getList converted to generator that yields idividual paths
       - download is performed through the temporary file
       - upload stores uid, gid, mode of file in custom_properties
       - download restores uid, gid, mode from custom_properties of file
       - history data updates according to the success operations
   '''
   def __init__(self, token, hdata, path):
-    self.h_data = Config(hdata)       # History data {path: lastModifiedDateTime or True for dir}
+    self.h_data = Config(hdata)       # History data {path: lastModifiedDateTime}
     self.path = path
     super().__init__(token)
 
@@ -54,9 +65,9 @@ class Cloud(_Cloud):    # redefined cloud class for implement application level 
         if l:
           for i in res:
             i['path'] = path_join(self.path, i['path'])
-            i['modified'] = int(mktime(strptime(i['modified'][:-3]+i['modified'][-2:],
-                                                '%Y-%m-%dT%H:%M:%S%z')))
-          yield True, res
+            i['modified'] = int(datetime.strptime(i['modified'].replace(':', ''),
+                                                  '%Y-%m-%dT%H%M%S%z').timestamp())
+            yield True, i
           if l < chunk:
             break
           else:
@@ -139,57 +150,76 @@ class Cloud(_Cloud):    # redefined cloud class for implement application level 
       self.h_data[path] = True
     return status, res
 
-def in_paths(path, paths):
-  '''Check that path is within one of paths
-     Ehamples:
-        /home/disk/folder1/ex_folder/some_flie is within /home/disk/folder1/ex_folder,
-        but not within /home/disk/folder2'''
-  for p in paths:
-    if path.startswith(p):
-      return True         # yes if p is a left part of checked path
-  return False
-
 class Disk(object):
   '''High-level Yandex.disk client interface.
-     It can have following statuses (self.status updates by StatusUpdater):
+     It can have following statuses (self.status updates by thread StatusUpdater):
+      - fault - when disk can't access local folder (disk in this state is not operational)
       - busy - when some activities are currently performed
       - idle - no activities are currently performed
       - none - not connected
-      - no_net - network connection is not available
-      - error - some error
+      - no_net - network connection is not available (try to recoonect it later)
+      - error - some error (inspect the errorReason and try to fix it)
      All working paths within this class are absolute paths.
   '''
   def __init__(self, user):
     self.user = user  # dictionary with user configuration
     self.path = expanduser(self.user['path'])
-    self.cloud = Cloud(self.user['auth'],
-                       path_join(self.path, dataFolder, 'hist.data'),
-                       self.path)
-    self.executor = ThreadPoolExecutor()
-    self.shutdown = False   # signal for threads to exit
-    self.downloads = set()  # set of currently dowloading files
-    self.EH = Thread(target=self._eventHandler)  # event handler thread
-    self.EH.name = 'EventHandler'
-    # i-notify watcher object
-    self.watch = self._PathWatcher(self.path,
-                                   [path_join(self.path, e)
-                                     for e in self.user['exclude'] + [dataFolder]])
-    self.EH.start()
-    #self.listener = XMPPListener('\00'.join(user[login], user[auth]))
-    # Status treatment staff
-    self.prevStatus = 'none'
+    dataFolder = '.yandex-disk-client'
+    dataFolderPath = path_join(self.path, dataFolder)
+    self.shutdown = False   # signal for utility threads to exit
+    self.prevStatus = 'start'
     self.status = 'none'
-    self.error = False  # error flag. If it is set then fullSync is required
+    self.errorReason = ''
+    if not pathExists(dataFolderPath):
+      print(dataFolderPath, 'not exists')
+      try:
+        makedirs(dataFolderPath, exist_ok=True)
+      except:
+        self.status = 'fault'
+    else:
+      try:
+        utime(dataFolderPath)
+      except:
+        self.status = 'fault'
+    if self.status == 'fault':
+      self.errorReason = "Error: Can't access the local folder %s" % self.path
+    else:
+      self.cloud = Cloud(self.user['auth'],
+                         path_join(dataFolderPath, 'hist.data'),
+                         self.path)
+      self.executor = ThreadPoolExecutor()
+      self.downloads = set()  # set of currently dowloading files
+      # event handler thread
+      self.EH = Thread(target=self._eventHandler)
+      self.EH.name = 'EventHandler'
+      # i-notify watcher object
+      self.watch = self._PathWatcher(self.path,
+                                     [path_join(self.path, e)
+                                       for e in self.user['exclude'] + [dataFolder]])
+      self.EH.start()
+      #self.listener = XMPPListener('\00'.join(user[login], user[auth]))
+    # Status treatment staff
+    self.error = False  # error flag. If it is True then fullSync is required
     self.progress = ''
-    self.cloudStatus = dict()  # dictionary with set of cloud status elements
+    # dictionary with set of cloud status elements. Initional state
+    self.cloudStatus = dict()
     self.changes = {'init'}  # set with changes flags
-    self.statusQueue = Queue()
-    self.SU = Thread(target=self._statusUpdater)  # individual thread to control changes of status
+    # individual thread to control changes of status
+    self.statusQueue = Queue()  # queue to pass status changes from other threads to StatusUpdater
+    self.SU = Thread(target=self._statusUpdater)
     self.SU.name = 'StatusUpdater'
     self.SU.start()
-    # connect to cloud if it is required by configuration
-    if self.user.setdefault('start', True):
-      self.connect()
+    if self.status != 'fault':
+      # connect to cloud if it is required by configuration
+      if self.user.setdefault('start', True):
+        self.connect()
+      else:
+        self.statusQueue.put((self.status, self.prevStatus))
+    else:
+      # set fault status
+      self.statusQueue.put((self.status, self.prevStatus))
+  def connected(self):
+    return self.status in {'idle','busy','error'}
 
   def _setStatus(self, status):
     if status != self.status:
@@ -198,8 +228,11 @@ class Disk(object):
       self.statusQueue.put((status, self.prevStatus))
 
   def updateInfo(self):
-    # get disk statistics
-    stat, res = self.cloud.getDiskInfo()
+    # get disk statistics if connected
+    if self.connected():
+      stat, res = self.cloud.getDiskInfo()
+    else:
+      stat = False
     if stat:
       total = res['total_space']
       used = res['used_space']
@@ -208,20 +241,21 @@ class Disk(object):
       total = '...'
       used = '...'
       trash = '...'
-    if self.cloudStatus.get('total', False):
-      if ((self.cloudStatus['used'] != used) or
-          (self.cloudStatus['trash'] != trash) or
-          (self.cloudStatus['total'] != total)):
-        self.changes.add('prop')
-      else:
-        self.changes.add('prop')
-    self.cloudStatus['total'] = total
-    self.cloudStatus['used'] = used
-    self.cloudStatus['trash'] = trash
+    if (self.cloudStatus.get('total') is None or
+        self.cloudStatus['used'] != used or
+        self.cloudStatus['trash'] != trash or
+        self.cloudStatus['total'] != total):
+      self.changes.add('prop')
+      self.cloudStatus['total'] = total
+      self.cloudStatus['used'] = used
+      self.cloudStatus['trash'] = trash
     # get last synchronized list
-    stat, res = self.cloud.getLast()
+    if self.connected():
+      stat, res = self.cloud.getLast()
+    else:
+      stat = False
     last = res if stat else []
-    if last != self.cloudStatus.get('last', None):
+    if last != self.cloudStatus.get('last', []):
       self.changes.add('last')
     self.cloudStatus['last'] = last
 
@@ -249,14 +283,15 @@ class Disk(object):
   def getStatus(self):
     '''Return the current disk status
        The returned status dict contain the following items:
-         { 'status': <current status (one of: 'none', 'idle', 'busy', 'error', 'no_net')>,
-           'progress': <current activity progress (it si actual only for 'busy' status)>,
+         { 'status': <current status (one of: 'fault', 'none', 'idle', 'busy', 'error', 'no_net')>,
+           'progress': <current activity progress (it is actual only for 'busy' status)>,
            'login': <Cloud disk user login>
            'total': <total cloud disk size>,
            'used': <used cloud disk space>,
            'trash': <trash size>,
            'path': <synchronized local path>,
            'last': <up to 10 last synchronized items>
+           'reson': <fault or error reason>
          }
     '''
     self.updateInfo()
@@ -267,7 +302,8 @@ class Disk(object):
             'used': self.cloudStatus['used'],
             'trash': self.cloudStatus['trash'],
             'last': self.cloudStatus['last'],
-            'path': self.user['path']
+            'path': self.user['path'],
+            'reason': self.errorReason
            }
 
   def changed(self, change={}):
@@ -299,11 +335,11 @@ class Disk(object):
         stat, rets = res      # it is cloud operation
         if not stat:
           self.error = True
-        if isinstance(rets, str) and rets.startswith('down'):
+        elif isinstance(rets, str) and rets.startswith('down'):
           # Remove downloaded file from downloads
           self.downloads -= {rets[5:]}
-      elif isinstance(res, str) and res == 'fullSync':
-        pass
+      #elif isinstance(res, str) and res == 'fullSync':
+      #  pass
       if unf == 0:  # all done
         self.downloads = set()  # clear downloads as no more downloads requered
         self._setStatus('idle')
@@ -335,109 +371,113 @@ class Disk(object):
       # ({cloud} & {local}) and hashes are equal = ignore
       # ({cloud} & {local}) and hashes not equal -> decide conflict/upload/download depending on
       # the update time of files and time stored in the history
-      for status, items in self.cloud.getList(chunk=40):
+      for status, i in self.cloud.getList(chunk=40):
         if status:
-          for i in items:
-            path = i['path']
-            p, _ = path_split(path)
-            if in_paths(p, exclude):
+          path = i['path']         # full file path !NOTE! getList doesnt return empty folders
+          p, _ = path_split(path)  # containing folder
+          if in_paths(p, exclude):
+            continue
+          if pathExists(path):
+            if i['type'] == 'dir':  # it is existing directory
+              # there is nothing to check for directories
+              # here we may check UGM and if they are different we have to dicide:
+              # - store UGM to cloud or
+              # - restore UGM from cloud
+              # but for this dicission we need last updated data for directories in history
+              ####
+              # !!! Actualy Yd don't return empty filders in file list !!!
+              # This section newer run
+              ####
+              ignore_path_down(path)
               continue
-            if pathExists(path):
-              if i['type'] != 'file':   # it is existing directory
-                # there is nothing to check for directories
+            else:                     # existig file
+              try:
+                with open(path, 'rb') as f:
+                  hh = sha256(f.read()).hexdigest()
+              except:
+                hh = ''
+              c_t = i['modified']                       # cloud file modified date-time
+              l_t = int(file_info(path).st_mtime)       # local file modified date-time
+              h_t = self.cloud.h_data.get(path, l_t)    # history file modified date-time
+              if hh == i['sha256']:
+                # Cloud and local hashes are equal
                 # here we may check UGM and if they are different we have to dicide:
                 # - store UGM to cloud or
                 # - restore UGM from cloud
-                # but for this dicission we need last updated data for directories in history
-                ####
-                # !!! Actualy Yd don't return empty filders in file list !!!
-                # This section newer run
-                ####
-                ignore_path_down(path)
+                # depending on modified time (compare c_t and l_t)
+                ignore_path_down(path)  # add in ignore and history all folders by way to file
                 continue
-              else:                     # existig file
-                try:
-                  with open(path, 'rb') as f:
-                    hh = sha256(f.read()).hexdigest()
-                except:
-                  hh = ''
-                if hh == i['sha256']:
-                  # Cloud and local hashes are equal
-                  # here we may check UGM and if they are different we have to dicide:
-                  # - store UGM to cloud or
-                  # - restore UGM from cloud
+              else:
+                # Cloud and local files are different. Need to decide what to do: upload,
+                # download, or it is conflict.
+                # Solutions:
+                # - conflict if both cloud and local files are newer than stored in the history
+                # - download if the cloud file newer than the local, or
+                # - upload if the local file newer than the cloud file.
+                if l_t > h_t and c_t > h_t:     # conflict
+                  print('conflict')
+                  continue # it is not desined and not tested yet
+                  # rename older file to file.older and copy both files --> cloud and local
+                  path2 = path + '.older'
+                  ignore.add(path2)
+                  ignore.add(path)
+                  if l_t > c_t:
+                    self.downloads.add(path2)
+                    self.cloud.move(path, path2)  # need to do before rest
+                    self._submit(self.cloud.download, (path2,))
+                    self._submit(self.cloud.upload, (path,))
+                  else:
+                    self.downloads.add(path)
+                    fileMove(path, path2)  # it will be captered as move from & move to !!!???
+                    self._submit(self.cloud.download, (path,))
+                    self._submit(self.cloud.upload, (path2,))
+                elif l_t > c_t:  # local time greater than the cloud time
+                  # upload (as file exists the dir exists too - no need to create dir in cloud)
+                  self._submit(self.cloud.upload, (path,))
                   ignore_path_down(path)  # add in ignore and history all folders by way to file
                   continue
-                else:
-                  # Cloud and local files are different. Need to decide what to do: upload,
-                  # download, or it is conflict.
-                  # Solutions:
-                  # - conflict if both cloud and local files are newer than stored in the history
-                  # - download if the cloud file newer than the local, or
-                  # - upload if the local file newer than the cloud file.
-                  c_t = i['modified']                       # cloud file modified date-time
-                  l_t = int(file_info(path).st_mtime)       # local file modified date-time
-                  h_t = self.cloud.h_data.get(path, l_t)    # history file modified date-time
-                  ###
-                  ### Need more investigation on comparison of date\time of local and cloud files
-                  ###
-                  if l_t > h_t and c_t > h_t:     # conflict
-                    print('conflict')
-                    continue # it is not desined and not tested yet
-                    # rename older file to file.older and copy both files --> cloud and local
-                    path2 = path + '.older'
-                    ignore.add(path2)
-                    ignore.add(path)
-                    if l_t > c_t:
-                      self.downloads.add(path2)
-                      self.cloud.move(path, path2)  # need to do before rest
-                      self._submit(self.cloud.download, (path2,))
-                      self._submit(self.cloud.upload, (path,))
-                    else:
-                      self.downloads.add(path)
-                      fileMove(path, path2)  # it will be captered as move from & move to !!!???
-                      self._submit(self.cloud.download, (path,))
-                      self._submit(self.cloud.upload, (path2,))
-                  elif l_t > c_t:  # local time greater than the cloud time
-                    # upload (as file exists the dir exists too - no need to create dir in cloud)
-                    self._submit(self.cloud.upload, (path,))
-                    ignore_path_down(path)  # add in ignore and history all folders by way to file
-                    continue
-                  #else:  # download - it is performed below
-            # The file has to be downloaded or.... deleted from the cloud when local file
-            # was deleted and this deletion was not catched by active client (client was not
-            # connected to cloud).
-            if self.cloud.h_data.get(path, False):  # do we have history data for this path?
-              # as we have history info for path but local path doesn't exists then we have to
-              # delete it from cloud
-              if not pathExists(p):   # containing directory is also removed?
-                while True:           # go down to the shortest removed directory
-                  p_, _ = path_split(p)
-                  if pathExists(p_):
-                    break
-                  p = p_
-                  del self.cloud.h_data[p]  # remove history
-                  ### !!! all files in this folder mast be romoved too, but we
-                  ### can't walk as files/folders was deleted from local FS!
-                  ### NEED history database to do delete where path.startwith(p) - it can't be done in dict
-                self._submit(self.cloud.delete, (p,))
-                exclude.add(d)        # add d to exceptions to avoid unnecessary checks for other files which are within p
-              else:                   # delete only file
-                self._submit(self.cloud.delete, (path,))
-                del self.cloud.h_data[path]  # remove history
-            else:   # local file have to be updated (downloaded from the cloud)
-              if i['type'] == 'file':
-                if not pathExists(p):
-                  self.downloads |= ignore_path_down(p)   # store new dir in dowloads to avoud upload
-                  makedirs(p, exist_ok=True)
-                ignore.add(p)
-                self.downloads.add(path)            # store downloaded file in dowloads to avoud upload
-                self._submit(self.cloud.download, (path,))
-                ignore.add(path)
-              else:                                 # directory not exists
-                self.downloads.add(ignore_path_down(path))            # store new dir in dowloads to avoud upload
-                makedirs(path, exist_ok=True)
-      # ---- Done forward path (from cloud to local) ------
+                else:  # download
+                  # upload (as file exists the dir exists too - no need to create local dir)
+                  self.downloads.add(path)  # remember in downloads to avod events on this path
+                  self._submit(self.cloud.download, (path,))
+                  ignore_path_down(path)  # add in ignore and history all folders by way to file
+                  continue
+          # The file is not exists
+          # it means that it has to be downloaded or.... deleted from the cloud when local file
+          # was deleted and this deletion was not catched by active client (client was not
+          # connected to cloud or was not running at the moment of deletion).
+          if self.cloud.h_data.get(path, False):  # do we have history data for this path?
+            # as we have history info for path but local path doesn't exists then we have to
+            # delete it from cloud
+            if not pathExists(p):   # containing directory is also removed?
+              while True:           # go down to the shortest removed directory
+                p_, _ = path_split(p)
+                if pathExists(p_):
+                  break
+                p = p_
+                del self.cloud.h_data[p]  # remove history
+                ### !!! all files in this folder mast be romoved too, but we
+                ### can't walk as files/folders was deleted from local FS!
+                ### NEED history database to do delete where path.startwith(p) - it can't be done in dict
+              self._submit(self.cloud.delete, (p,))
+              # add d to exceptions to avoid unnecessary checks for other files which are within p
+              exclude.add(d)
+            else:                   # only file was deleted
+              self._submit(self.cloud.delete, (path,))
+              del self.cloud.h_data[path]  # remove history
+          else:   # local file have to be downloaded from the cloud
+            if i['type'] == 'file':
+              if not pathExists(p):
+                self.downloads |= ignore_path_down(p)   # store new dir in dowloads to avoud upload
+                makedirs(p, exist_ok=True)
+              ignore.add(p)
+              self.downloads.add(path)            # store downloaded file in dowloads to avoud upload
+              self._submit(self.cloud.download, (path,))
+              ignore.add(path)
+            else:                                 # directory not exists
+              self.downloads.add(ignore_path_down(path))  # store new dir in dowloads to avoud upload
+              makedirs(path, exist_ok=True)
+      # ---- Done forward path (sync cloud to local) ------
       # (local - ignored) -> upload to cloud
       for root, dirs, files in walk(self.path):
         if in_paths(root, exclude):
@@ -449,13 +489,15 @@ class Disk(object):
             # do it in-line as it rather fast operation
             s, r = self.cloud.mkDir(d)
             print('done in-line', s, r)
+            ### !need to check success of folder creation! !need to decide what to do in case of error!
         for f in files:
           f = path_join(root, f)
           if f not in ignore:
             self._submit(self.cloud.upload, (f,))
       return 'fullSync'
 
-    self._submit(_fullSync, (self,))
+    if self.connected():
+      self._submit(_fullSync, (self,))
 
   def _eventHandler(self):      # Thread that handles iNotify watcher events
 
@@ -479,7 +521,7 @@ class Disk(object):
         if event.pathname not in self.downloads:
           self._submit(self.cloud.upload, (event.pathname,))
 
-    def moved(event):
+    def moved(event):  # handle standalone moved events
       if event.mask & IN_MOVED_TO:  # moved in = new
         new(event)
       else:  # moved out = deleted
@@ -498,6 +540,7 @@ class Disk(object):
         for d in dirs:
           s, r = self.cloud.mkDir(path_join(root, d))
           print('done in-line', s, r)
+          ### !need to check success of folder creation! !need to decide what to do in case of error!
         for f in files:
           submit(self.cloud.upload, (path_join(root, f),))
       return 'recCreate'
@@ -521,12 +564,12 @@ class Disk(object):
               self._submit(self.cloud.move, (event.pathname, event2.pathname))
               break  # as ve alredy treated two MOVED events
             else:
-              moved(event)  # treat first event as standalone
-              event = event2  # treat second event
+              moved(event)  # treat first MOVED event as standalone
+              event = event2  # treat second MOVED event
           except Empty:
-            moved(event)  # treat first event as standalone
+            moved(event)  # treat first MOVED event as standalone
             break
-        # treat not IN_MOVE event
+        # treat not MOVED events
         if event.mask & IN_CREATE:
           new(event)
         elif event.mask & IN_DELETE:
@@ -579,32 +622,35 @@ class Disk(object):
   def connect(self):
     '''Activate synchronizations with Yandex.disk
        Check connection and activate local watching object and cloud listener'''
-    if self.status == 'none':
-      self.watch.start()
+    if self.status.startswith('no'): # self.status in ('none', 'no_net')
       if self.cloud.getDiskInfo()[0]:
+        self.watch.start()
         #self.listener.start()
+        self._setStatus('busy')
         self.fullSync()
       else:
-        self._setStatus('error')
+        self._setStatus('no_net')
 
   def disconnect(self):
     '''Deactivate synchronizations with Yandex.disk'''
-    if self.status != 'none':
+    if self.connected():
       self.watch.stop()
       #self.listener.stop()
       self._setStatus('none')
 
   def trash(self):
-    self._submit(self.cloud.trash, ())
+    if self.connected():
+      self._submit(self.cloud.trash, ())
 
   def exit(self):
-    if self.status != 'none':
+    if self.connected():
       self.disconnect()
     self.shutdown = True
-    self.watch.exit()
-    self.watch.put(None)
-    self.EH.join()
-    self.executor.shutdown(wait=True)
+    if self.status != 'fault':
+      self.watch.exit()
+      self.watch.put(None)
+      self.EH.join()
+      self.executor.shutdown(wait=True)
     self._setStatus('exit')
     self.SU.join()
 
@@ -616,7 +662,6 @@ def appExit(msg=None):
     disk.exit()
   print('msg: %s' % msg)
   print(enumerate())
-  #input('exit')
   sysExit(msg)
 
 if __name__ == '__main__':
@@ -629,7 +674,6 @@ if __name__ == '__main__':
   from signal import signal, SIGTERM, SIGINT
 
   appName = 'yd-client'
-  dataFolder = '.yandex-disk-client'
   # read or make new configuration file
   confHome = expanduser(path_join('~', '.config', appName))
   config = Config(path_join(confHome, 'client.conf'))
@@ -646,12 +690,6 @@ if __name__ == '__main__':
   disks = []
   while True:
     for user in config['disks'].values():
-      path = expanduser(user['path'])
-      if not pathExists(path):
-        try:
-          makedirs(path_join(path, dataFolder), exist_ok=True)
-        except:
-          appExit(_("Error: Can't access the local folder %s" % path))
       disks.append(Disk(user))
     if disks:
       break
@@ -684,8 +722,9 @@ if __name__ == '__main__':
   signal(SIGTERM, lambda _signo, _stack_frame: appExit('Killed'))
   signal(SIGINT, lambda _signo, _stack_frame: appExit('CTRL-C Pressed'))
 
-  print('Commands:\n с - connect\n d - disconnect\n s - get status\n t - clear trash\n'
-        ' f - full sync\n e - exit\n ')
+  msg = ('Commands:\n с - connect\n d - disconnect\n s - get status\n t - clear trash\n'
+         ' f - full sync\n e - exit\n ')
+  print(msg, 'connected:', disks[0].connected())
   while True:
     cmd = input()
     if cmd == 'd':
@@ -700,3 +739,4 @@ if __name__ == '__main__':
       disks[0].fullSync()
     elif cmd == 'e':
       appExit()
+    print(msg, 'connected:', disks[0].connected())

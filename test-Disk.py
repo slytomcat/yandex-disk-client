@@ -33,6 +33,24 @@ CIRCLE_ENV = getenv('CIRCLE_ENV') == 'test'
 class test_Disk(unittest.TestCase):
 
   @unittest.skipUnless(CIRCLE_ENV, "Only for CircleCI environment")
+  def test_00_notStarted(self):
+    self.Disk = Disk({'login': 'stc.yd', 'auth': getenv('API_TOKEN'), 'path': '~/yd', 'start': False,
+                      'ro': False, 'ow': False, 'exclude': ['excluded_folder']})
+    sleep(10)
+    self.assumeTrue(self.Disk.status == 'none')
+    self.disk.exit()
+    self.assumeEqual(len(enumerate()), 1)
+
+  @unittest.skipUnless(CIRCLE_ENV, "Only for CircleCI environment")
+  def test_01_noAccess(self):
+    self.Disk = Disk({'login': 'stc.yd', 'auth': getenv('API_TOKEN'), 'path': '/root', 'start': True,
+                      'ro': False, 'ow': False, 'exclude': ['excluded_folder']})
+    sleep(10)
+    self.assumeTrue(self.Disk.status == 'fault')
+    self.disk.exit()
+    self.assumeEqual(len(enumerate()), 1)
+
+  @unittest.skipUnless(CIRCLE_ENV, "Only for CircleCI environment")
   def test_1_InitialSync(self):
     self.Disk = Disk({'login': 'stc.yd', 'auth': getenv('API_TOKEN'), 'path': '~/yd', 'start': True,
                       'ro': False, 'ow': False, 'exclude': ['excluded_folder']})
