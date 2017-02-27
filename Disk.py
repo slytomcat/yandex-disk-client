@@ -18,7 +18,7 @@
 #  along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 from os import remove, makedirs, walk, stat as file_info, chown, chmod, utime
-from os.path import join as path_join, expanduser, relpath, split as path_split
+from os.path import join as path_join, expanduser, relpath, split as path_split, exists as pathExists
 from pyinotify import ProcessEvent, WatchManager, Notifier, ThreadedNotifier, ExcludeFilter,\
                       IN_MODIFY, IN_DELETE, IN_CREATE, IN_MOVED_FROM, IN_MOVED_TO, IN_ATTRIB
 from threading import Thread, Event, enumerate
@@ -668,7 +668,6 @@ if __name__ == '__main__':
   from sys import exit as sysExit
   from jconfig import Config
   from gettext import translation
-  from os.path import exists as pathExists
   from os import getenv
   from re import findall
   from signal import signal, SIGTERM, SIGINT
