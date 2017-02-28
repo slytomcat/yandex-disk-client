@@ -27,11 +27,11 @@ from Cloud import Cloud
 
 class test_Cloud(unittest.TestCase):
   '''Local test token have to be store_requestd in file 'OAuth.info' with following format:
-     devtoken:  <OAuth token>
-     CircleCi token is in the environment variable self.cloud_TOKEN
+     CLOUD_TOKEN:  <OAuth token>
+     CircleCi token is in the environment variable CLOUD_TOKEN
   '''
   cloud = Cloud(getenv('CLOUD_TOKEN') if getenv('CIRCLE_ENV') == 'test' else
-                findall(r'devtoken: (.*)', open('OAuth.info', 'rt').read())[0].strip())
+                findall(r'CLOUD_TOKEN: (.*)', open('OAuth.info', 'rt').read())[0].strip())
 
   def test_DiskInfo(self):
     stat, res = self.cloud.getDiskInfo()

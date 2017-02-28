@@ -34,7 +34,7 @@ from time import time
 
 def in_paths(path, paths):
   '''Check that path is within one of paths
-     Ehamples:
+     Examples:
         /home/disk/folder1/ex_folder/some_flie is within /home/disk/folder1/ex_folder,
         but not within /home/disk/folder2'''
   for p in paths:
@@ -45,15 +45,16 @@ def in_paths(path, paths):
 class Cloud(_Cloud):    # redefined cloud class for implement application level logic
   ''' - all paths in parameters are absolute paths only
       - download/upload have only 1 parameter - absolute path of file
-      - getList converted to generator that yields idividual paths
+      - getList converted to generator that yields individual paths
       - download is performed through the temporary file
       - upload stores uid, gid, mode of file in custom_properties
       - download restores uid, gid, mode from custom_properties of file
       - history data updates according to the success operations
   '''
-  def __init__(self, token, hdata, path):
-    self.h_data = Config(hdata)       # History data {path: lastModifiedDateTime}
+  def __init__(self, token, work_dir, path):
+    self.h_data = Config(path_join(work_dir,'hist.data'))  # History data {path: lastModifiedDateTime}
     self.path = path
+    self.work_dir = work_dir
     super().__init__(token)
 
   def getList(self, chunk=None):  # getFullList is a generator that yields file list by chunks
@@ -79,7 +80,7 @@ class Cloud(_Cloud):    # redefined cloud class for implement application level 
         yield status, res
 
   def download(self, path):    # download via temporary file to make it in transaction manner
-    with tempFile(suffix='.yandex-disk-client', delete=False) as f:
+    with tempFile(suffix='.yandex-disk-client', delete=False, dir=self.work_dir) as f:
       temp = f.name
     r_path = relpath(path, start=self.path)
     status, res = super().download(r_path, temp)
@@ -158,7 +159,7 @@ class Disk(object):
       - busy - when some activities are currently performed
       - idle - no activities are currently performed
       - none - not connected
-      - no_net - network connection is not available (try to recoonect it later)
+      - no_net - network connection is not available (try to reconnect it later)
       - error - some error (inspect the errorReason and try to fix it)
      All working paths within this class are absolute paths.
   '''
@@ -186,10 +187,10 @@ class Disk(object):
       self.errorReason = "Error: Can't access the local folder %s" % self.path
     else:
       self.cloud = Cloud(self.user['auth'],
-                         path_join(dataFolderPath, 'hist.data'),
+                         dataFolderPath,
                          self.path)
       self.executor = ThreadPoolExecutor()
-      self.downloads = set()  # set of currently dowloading files
+      self.downloads = set()  # set of currently downloading files
       # event handler thread
       self.EH = Thread(target=self._eventHandler)
       self.EH.name = 'EventHandler'
@@ -202,7 +203,7 @@ class Disk(object):
     # Status treatment staff
     self.error = False  # error flag. If it is True then fullSync is required
     self.progress = ''
-    # dictionary with set of cloud status elements. Initional state
+    # dictionary with set of cloud status elements. Initial state
     self.cloudStatus = dict()
     self.changes = {'init'}  # set with changes flags
     # individual thread to control changes of status
@@ -267,14 +268,14 @@ class Disk(object):
       self.changes.add('stat')
       if status == 'busy':
         stime = time()
-      if prevStatus == 'busy':
-        print('Finished in %s sec.' % (time() - stime))
       if status == 'idle':
         self.cloud.h_data.save()
         if self.error:
           print('ERROR WAS DETECTED!!!!!!! --> fillSync')
           self.error = False
           self.fullSync()
+        else:
+          print('Finished in %s sec.' % (time() - stime))
       self.updateInfo()
       if self.changes:
         changes = self.changes
@@ -342,7 +343,7 @@ class Disk(object):
       #elif isinstance(res, str) and res == 'fullSync':
       #  pass
       if unf == 0:  # all done
-        self.downloads = set()  # clear downloads as no more downloads requered
+        self.downloads = set()  # clear downloads as no more downloads required
         self._setStatus('idle')
 
     ft = self.executor.submit(task, *args)
@@ -374,19 +375,19 @@ class Disk(object):
       # the update time of files and time stored in the history
       for status, i in self.cloud.getList(chunk=40):
         if status:
-          path = i['path']         # full file path !NOTE! getList doesnt return empty folders
+          path = i['path']         # full file path !NOTE! getList doesn't return empty folders
           p, _ = path_split(path)  # containing folder
           if in_paths(p, exclude):
             continue
           if pathExists(path):
             if i['type'] == 'dir':  # it is existing directory
               # there is nothing to check for directories
-              # here we may check UGM and if they are different we have to dicide:
+              # here we may check UGM and if they are different we have to decide:
               # - store UGM to cloud or
               # - restore UGM from cloud
-              # but for this dicission we need last updated data for directories in history
+              # but for this decision we need last updated data for directories in history
               ####
-              # !!! Actualy Yd don't return empty filders in file list !!!
+              # !!! Actually Yd don't return empty folders in file list !!!
               # This section newer run
               ####
               ignore_path_down(path)
@@ -402,7 +403,7 @@ class Disk(object):
               h_t = self.cloud.h_data.get(path, l_t)    # history file modified date-time
               if hh == i['sha256']:
                 # Cloud and local hashes are equal
-                # here we may check UGM and if they are different we have to dicide:
+                # here we may check UGM and if they are different we have to decide:
                 # - store UGM to cloud or
                 # - restore UGM from cloud
                 # depending on modified time (compare c_t and l_t)
@@ -429,7 +430,7 @@ class Disk(object):
                     self._submit(self.cloud.upload, (path,))
                   else:
                     self.downloads.add(path)
-                    fileMove(path, path2)  # it will be captered as move from & move to !!!???
+                    fileMove(path, path2)  # it will be captured as move from & move to !!!???
                     self._submit(self.cloud.download, (path,))
                     self._submit(self.cloud.upload, (path2,))
                 elif l_t > c_t:  # local time greater than the cloud time
@@ -445,19 +446,20 @@ class Disk(object):
                   continue
           # The file is not exists
           # it means that it has to be downloaded or.... deleted from the cloud when local file
-          # was deleted and this deletion was not catched by active client (client was not
+          # was deleted and this deletion was not cached by active client (client was not
           # connected to cloud or was not running at the moment of deletion).
           if self.cloud.h_data.get(path, False):  # do we have history data for this path?
             # as we have history info for path but local path doesn't exists then we have to
             # delete it from cloud
             if not pathExists(p):   # containing directory is also removed?
+              d = p
               while True:           # go down to the shortest removed directory
                 p_, _ = path_split(p)
                 if pathExists(p_):
                   break
                 p = p_
                 del self.cloud.h_data[p]  # remove history
-                ### !!! all files in this folder mast be romoved too, but we
+                ### !!! all files in this folder mast be removed too, but we
                 ### can't walk as files/folders was deleted from local FS!
                 ### NEED history database to do delete where path.startwith(p) - it can't be done in dict
               self._submit(self.cloud.delete, (p,))
@@ -469,14 +471,14 @@ class Disk(object):
           else:   # local file have to be downloaded from the cloud
             if i['type'] == 'file':
               if not pathExists(p):
-                self.downloads |= ignore_path_down(p)   # store new dir in dowloads to avoud upload
+                self.downloads |= ignore_path_down(p)   # store new dir in downloads to avoid upload
                 makedirs(p, exist_ok=True)
               ignore.add(p)
-              self.downloads.add(path)            # store downloaded file in dowloads to avoud upload
+              self.downloads.add(path)            # store downloaded file in downloads to avoid upload
               self._submit(self.cloud.download, (path,))
               ignore.add(path)
-            else:                                 # directory not exists
-              self.downloads.add(ignore_path_down(path))  # store new dir in dowloads to avoud upload
+            else:                                 # directory not exists  !!! newer run !!!
+              self.downloads.add(ignore_path_down(path))  # store new dir in downloads to avoid upload
               makedirs(path, exist_ok=True)
       # ---- Done forward path (sync cloud to local) ------
       # (local - ignored) -> upload to cloud
@@ -510,7 +512,7 @@ class Disk(object):
         else:
           # create newly created local dir in the cloud
           if event.mask & IN_MOVED_TO:
-            # If moved folder is not empty there is no evets appear for all it's content.
+            # If moved folder is not empty there is no events appear for all it's content.
             # So we need to walk inside and upload all directories, subdirectories and files
             # that are within the moved directory.
             # Do this task within threadExecutor as it can rather many files inside.
@@ -529,8 +531,8 @@ class Disk(object):
         self._submit(self.cloud.delete, (event.pathname,))
 
     def recCreate(path, exclude, submit):
-      ''' It recursivelly creates folders and files in cloud, starting from specified directory.
-          It itsef executed in threadExecutor and submits files uploads to threadExecutor but
+      ''' It recursively creates folders and files in cloud, starting from specified directory.
+          It itself executed in threadExecutor and submits files uploads to threadExecutor but
           directories created by direct calls as it rather fast operation and directories need
           to be created in advance (before uploading file to them).
       '''
@@ -561,7 +563,7 @@ class Disk(object):
             except AttributeError:
               cookie = ''
             if event.cookie == cookie:
-              # greate! we've found the move operatin (file moved within the synced path)
+              # great! we've found the move operation (file moved within the synced path)
               self._submit(self.cloud.move, (event.pathname, event2.pathname))
               break  # as ve alredy treated two MOVED events
             else:
@@ -609,7 +611,7 @@ class Disk(object):
     def start(self, exclude = None):
       if not self.started:
         # Add watch and start watching
-        # Update exlude filter if it provided in call of start method
+        # Update exclude filter if it provided in call of start method
         self.exclude = exclude or self.exclude
         self._watch = self._wm.add_watch(self._path, self.FLAGS,
                                        exclude_filter=ExcludeFilter(self.exclude),
@@ -662,14 +664,13 @@ class Disk(object):
     self.SU.join()
     return 0
 
+''' Interactive execution code
+'''
+
 def appExit(msg=None):
   threads = enumerate()
-  print('Threads:', len(threads))
-  print(threads)
   for disk in disks:
     disk.exit()
-  print('msg: %s' % msg)
-  print(enumerate())
   sysExit(msg)
 
 if __name__ == '__main__':
