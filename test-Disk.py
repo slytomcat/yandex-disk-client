@@ -37,45 +37,40 @@ class test_Disk(unittest.TestCase):
   def test_00_notStarted(self):
     DISK = Disk({'login': 'stc.yd', 'auth': getenv('API_TOKEN'), 'path': '~/yd', 'start': False,
                  'ro': False, 'ow': False, 'exclude': ['excluded_folder']})
-    sleep(10)
+    sleep(2)
     self.assertTrue(DISK.status == 'none')
     self.assertEqual(DISK.exit(), 0)
 
   @unittest.skipUnless(CIRCLE_ENV, "Only for CircleCI environment")
   def test_01_noAccess(self):
-    self.Disk = Disk({'login': 'stc.yd', 'auth': getenv('API_TOKEN'), 'path': '/root', 'start': True,
+    DISK = Disk({'login': 'stc.yd', 'auth': getenv('API_TOKEN'), 'path': '/root', 'start': True,
                       'ro': False, 'ow': False, 'exclude': ['excluded_folder']})
-    sleep(10)
-    self.assertTrue(self.Disk.status == 'fault')
-    self.Disk.exit()
-    self.assertEqual(len(enumerate()), 1)
+    sleep(2)
+    self.assertTrue(DISK.status == 'fault')
+    self.assertEqual(DISK.exit(), 0)
 
   @unittest.skipUnless(CIRCLE_ENV, "Only for CircleCI environment")
   def test_1_InitialSync(self):
-    global Disk
-    Disk = Disk({'login': 'stc.yd', 'auth': getenv('API_TOKEN'), 'path': '~/yd', 'start': True,
+    DISK = Disk({'login': 'stc.yd', 'auth': getenv('API_TOKEN'), 'path': '~/yd', 'start': True,
                  'ro': False, 'ow': False, 'exclude': ['excluded_folder']})
-    sleep(60)
-    self.assertTrue(Disk.status == 'idle')
+    sleep(20)
+    self.assertTrue(DISK.status == 'idle')
 
   @unittest.skipUnless(CIRCLE_ENV, "Only for CircleCI environment")
   def test_2_TestSequence(self):
-    global Disk
     call(['bash', '/home/ubuntu/yd/test.sh'])
-    sleep(30)
-    self.assertTrue(Disk.status == 'idle')
+    sleep(20)
+    self.assertTrue(DISK.status == 'idle')
 
   @unittest.skipUnless(CIRCLE_ENV, "Only for CircleCI environment")
   def test_3_Trush(self):
-    global Disk
-    Disk.trash()
-    sleep(10)
-    self.assertTrue(Disk.status == 'idle')
+    DISK.trash()
+    sleep(5)
+    self.assertTrue(DISK.status == 'idle')
 
   @unittest.skipUnless(CIRCLE_ENV, "Only for CircleCI environment")
   def test_4_Exit(self):
-    global Disk
-    self.assertEqual(Disk.exit(), 0)
+    self.assertEqual(DISK.exit(), 0)
 
 if __name__ == '__main__':
   unittest.main()
