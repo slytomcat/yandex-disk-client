@@ -35,6 +35,7 @@ class test_Disk(unittest.TestCase):
 
   @unittest.skipUnless(CIRCLE_ENV, "Only for CircleCI environment")
   def test_00_notStarted(self):
+    global DISK
     DISK = Disk({'login': 'stc.yd', 'auth': getenv('API_TOKEN'), 'path': '~/yd', 'start': False,
                  'ro': False, 'ow': False, 'exclude': ['excluded_folder']})
     sleep(2)
@@ -43,6 +44,7 @@ class test_Disk(unittest.TestCase):
 
   @unittest.skipUnless(CIRCLE_ENV, "Only for CircleCI environment")
   def test_01_noAccess(self):
+    global DISK
     DISK = Disk({'login': 'stc.yd', 'auth': getenv('API_TOKEN'), 'path': '/root', 'start': True,
                       'ro': False, 'ow': False, 'exclude': ['excluded_folder']})
     sleep(2)
@@ -51,6 +53,7 @@ class test_Disk(unittest.TestCase):
 
   @unittest.skipUnless(CIRCLE_ENV, "Only for CircleCI environment")
   def test_1_InitialSync(self):
+    global DISK
     DISK = Disk({'login': 'stc.yd', 'auth': getenv('API_TOKEN'), 'path': '~/yd', 'start': True,
                  'ro': False, 'ow': False, 'exclude': ['excluded_folder']})
     sleep(20)
@@ -58,18 +61,21 @@ class test_Disk(unittest.TestCase):
 
   @unittest.skipUnless(CIRCLE_ENV, "Only for CircleCI environment")
   def test_2_TestSequence(self):
+    global DISK
     call(['bash', '/home/ubuntu/yd/test.sh'])
-    sleep(20)
+    sleep(10)
     self.assertTrue(DISK.status == 'idle')
 
   @unittest.skipUnless(CIRCLE_ENV, "Only for CircleCI environment")
   def test_3_Trush(self):
+    global DISK
     DISK.trash()
     sleep(5)
     self.assertTrue(DISK.status == 'idle')
 
   @unittest.skipUnless(CIRCLE_ENV, "Only for CircleCI environment")
   def test_4_Exit(self):
+    global DISK
     self.assertEqual(DISK.exit(), 0)
 
 if __name__ == '__main__':
