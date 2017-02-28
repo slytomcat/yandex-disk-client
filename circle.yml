@@ -13,6 +13,7 @@ machine:
 
 test:
   override:
-    - nosetests -v --with-coverage --cover-package=Disk.py,Cloud.py,jconfig.py
+    - nosetests -v --with-coverage
+# --cover-package=Disk.py,Cloud.py,jconfig.py
 
 
