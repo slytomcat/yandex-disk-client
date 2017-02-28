@@ -63,7 +63,7 @@ class test_Disk(unittest.TestCase):
   @unittest.skipUnless(CIRCLE_ENV, "Only for CircleCI environment")
   def test_20_TestSequence(self):
     global DISK
-    call(['cd', '~/yd'])
+    call(['bash', 'cd', '~/yd'])
     call(['bash', 'test.sh'])
     sleep(5)
     self.assertTrue(DISK.status == 'idle')
