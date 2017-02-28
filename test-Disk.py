@@ -70,7 +70,7 @@ class test_Disk(unittest.TestCase):
   def test_3_Trush(self):
     global DISK
     DISK.trash()
-    sleep(5)
+    sleep(3)
     self.assertTrue(DISK.status == 'idle')
 
   @unittest.skipUnless(CIRCLE_ENV, "Only for CircleCI environment")
