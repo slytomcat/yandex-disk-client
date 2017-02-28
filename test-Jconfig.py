@@ -62,6 +62,15 @@ class Test_jconfig(unittest.TestCase):
     self.assertTrue(newConfig.loaded)
     self.assertEqual(config, newConfig)
 
+  def test_wrong_file(self):
+    config = Config('not_existing_file')
+    self.assertFalse(config.loaded)
+    res = config.load('another_not_existing_file')
+    self.assertFalse(res)
+    self.assertFalse(config.loaded)
+    res = config.save('/root/not_accesseble_file')
+    self.assertFalse(res)
+
   def tearDown(self):
     if exists(self.path):
       remove(self.path)

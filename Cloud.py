@@ -82,8 +82,6 @@ class Cloud(object):
       if status == 200:
         if r["status"] == "success":
           return True, rets
-        else:
-          continue
       else:
         print('Async op ["%s"] returned %d' % (rets, status))
         return False, rets
@@ -113,8 +111,6 @@ class Cloud(object):
     status, res = self._request(req, path)
     if status == code:
       res['path'] = res['path'].replace('disk:/', '')
-      if res.get('items', False):   # remove items form directory resource info
-        del res['items']
       return True, res
     else:
       print('res %s returned %d' % (path, status))
@@ -128,7 +124,7 @@ class Cloud(object):
       return True, rets
     else:
       print('%s returned %d' % (rets, status))
-      return False, rets
+      return False, rets + ' code: ' + str(status)
 
   def getList(self, chunk=20, offset=0):
     req, code = self.CMD['list']

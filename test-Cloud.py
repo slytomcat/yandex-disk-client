@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 #
-#  test_Cloud.py
+#  test_self.cloud.py
 #
 #  Copyright 2017 Sly_tom_cat <stc@stc-nb>
 #
@@ -26,18 +26,12 @@ from os import remove, getenv
 from Cloud import Cloud
 
 class test_Cloud(unittest.TestCase):
-  def setUp(self):
-    try:
-      '''Local test token have to be store_requestd in file 'OAuth.info' with following format:
-         devtoken:  <OAuth token>
-      '''
-      with open('OAuth.info', 'rt') as f:
-        token = findall(r'devtoken: (.*)', f.read())[0].strip()
-    except:
-      ''' CircleCi token is in the environment variable CLOUD_TOKEN
-      '''
-      token = getenv('CLOUD_TOKEN')
-    self.cloud = Cloud(token)
+  '''Local test token have to be store_requestd in file 'OAuth.info' with following format:
+     devtoken:  <OAuth token>
+     CircleCi token is in the environment variable self.cloud_TOKEN
+  '''
+  cloud = Cloud(getenv('CLOUD_TOKEN') if getenv('CIRCLE_ENV') == 'test' else
+                findall(r'devtoken: (.*)', open('OAuth.info', 'rt').read())[0].strip())
 
   def test_DiskInfo(self):
     stat, res = self.cloud.getDiskInfo()
@@ -51,6 +45,12 @@ class test_Cloud(unittest.TestCase):
     self.assertTrue(stat)
     stat, res = self.cloud.getResource('newtestdir')
     self.assertTrue(stat)
+    stat, res = self.cloud.move('newtestdir', 'not_existing_dir/bla-bla')
+    self.assertFalse(stat)
+    stat, res = self.cloud.copy('newtestdir', 'not_existing_dir/bla-bla')
+    self.assertFalse(stat)
+    stat, res = self.cloud.mkDir('not_existing_dir/bla-bla/dir')
+    self.assertFalse(stat)
     stat, res = self.cloud.delete('newtestdir')
     self.assertTrue(stat)
 
@@ -79,12 +79,20 @@ class test_Cloud(unittest.TestCase):
     self.assertEqual(props.get('gid'), 1000)
     self.assertEqual(props.get('mode'), 33204)
 
-  def test_trush(self):
+  def test_wrong_res(self):
+    stat, res = self.cloud.getResource('not_existing_file.bla_bla')
+    self.assertFalse(stat)
+
+  def trush(self):
     stat, res = self.cloud.trash()
     self.assertTrue(stat)
     stat, res = self.cloud.getDiskInfo()
     self.assertTrue(stat)
     self.assertEqual(res.get('trash_size'), 0)
+
+  def test_trush(self):
+    self.trush()
+    self.trush()
 
   def test_up_down1_up(self):
     stat, res = self.cloud.upload('README.md', 'README.md')
@@ -107,5 +115,15 @@ class test_Cloud(unittest.TestCase):
     self.assertIs(type(res), list)
     self.assertEqual(len(res), 5)
 
+  def test_wrong_list(self):
+    stat, res = self.cloud.getList(chunk=7777777777)
+    self.assertFalse(stat)
+
+  def test_wrong_delete(self):
+    stat, res = self.cloud.delete('not_existing_file.bla_bla')
+    self.assertFalse(stat)
+
+
 if __name__ == '__main__':
+
   unittest.main()

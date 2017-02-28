@@ -28,6 +28,7 @@ from Disk import Disk
 from time import sleep
 from os import getenv
 from threading import enumerate
+
 CIRCLE_ENV = getenv('CIRCLE_ENV') == 'test'
 DISK = None
 
@@ -52,7 +53,7 @@ class test_Disk(unittest.TestCase):
     self.assertEqual(DISK.exit(), 0)
 
   @unittest.skipUnless(CIRCLE_ENV, "Only for CircleCI environment")
-  def test_1_InitialSync(self):
+  def test_10_InitialSync(self):
     global DISK
     DISK = Disk({'login': 'stc.yd', 'auth': getenv('API_TOKEN'), 'path': '~/yd', 'start': True,
                  'ro': False, 'ow': False, 'exclude': ['excluded_folder']})
@@ -60,21 +61,28 @@ class test_Disk(unittest.TestCase):
     self.assertTrue(DISK.status == 'idle')
 
   @unittest.skipUnless(CIRCLE_ENV, "Only for CircleCI environment")
-  def test_2_TestSequence(self):
+  def test_20_TestSequence(self):
     global DISK
     call(['bash', '/home/ubuntu/yd/test.sh'])
-    sleep(1)
+    sleep(3)
     self.assertTrue(DISK.status == 'idle')
 
   @unittest.skipUnless(CIRCLE_ENV, "Only for CircleCI environment")
-  def test_3_Trush(self):
+  def test_25_FullSync(self):
+    global DISK
+    DISK.fullSync()
+    sleep(5)
+    self.assertTrue(DISK.status == 'idle')
+
+  @unittest.skipUnless(CIRCLE_ENV, "Only for CircleCI environment")
+  def test_30_Trush(self):
     global DISK
     DISK.trash()
     sleep(3)
     self.assertTrue(DISK.status == 'idle')
 
   @unittest.skipUnless(CIRCLE_ENV, "Only for CircleCI environment")
-  def test_4_Exit(self):
+  def test_40_Exit(self):
     global DISK
     self.assertEqual(DISK.exit(), 0)
 
