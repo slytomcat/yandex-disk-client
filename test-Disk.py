@@ -74,7 +74,7 @@ class test_Disk(unittest.TestCase):
 
   def test_25_FullSync(self):
     self.disk.fullSync()
-    sleep(5)
+    sleep(10)
     self.assertTrue(self.disk.status == 'idle')
 
   def test_30_Trush(self):
@@ -115,8 +115,8 @@ class test_Disk(unittest.TestCase):
     with open(path, 'wt') as f:
       f.write('test test file file')
     self.disk.connect()
-    sleep(7)
-    stat, _ = self.disk.cloud.getResource(path)
+    sleep(10)
+    stat, _ = self.disk.cloud.getResource('dq/d2/file')
     self.assertTrue(stat)
     self.assertTrue(self.disk.status == 'idle')
 
