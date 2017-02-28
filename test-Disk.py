@@ -56,7 +56,7 @@ class test_Disk(unittest.TestCase):
     global DISK
     DISK = Disk({'login': 'stc.yd', 'auth': getenv('API_TOKEN'), 'path': '~/yd', 'start': True,
                  'ro': False, 'ow': False, 'exclude': ['excluded_folder']})
-    sleep(20)
+    sleep(15)
     self.assertTrue(DISK.status == 'idle')
 
   @unittest.skipUnless(CIRCLE_ENV, "Only for CircleCI environment")
