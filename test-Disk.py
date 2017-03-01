@@ -30,11 +30,14 @@ from os import getenv, chdir, getcwd, remove, makedirs
 from os.path import join as path_join, exists as pathExists
 from shutil import rmtree
 
+sleep = _sleep
+'''
 def sleep(timeout):
   if getenv('CIRCLE_ENV') == 'test':
     _sleep(timeout)
   else:
     input('>>>>')
+'''
 
 class test_Disk(unittest.TestCase):
   token = (getenv('CLOUD_TOKEN') if getenv('CIRCLE_ENV') == 'test' else
@@ -65,27 +68,25 @@ class test_Disk(unittest.TestCase):
     self.assertTrue(self.disk.status == 'idle')
 
   def test_20_TestSequence(self):
-    wd = getcwd()
     chdir(self.disk.path)
     call(['bash', 'test.sh'])
-    sleep(5)
+    sleep(20)
     self.assertTrue(self.disk.status == 'idle')
-    chdir(wd)
 
   def test_25_FullSync(self):
     self.disk.fullSync()
-    sleep(10)
+    sleep(20)
     self.assertTrue(self.disk.status == 'idle')
 
   def test_30_Trush(self):
     self.disk.trash()
-    sleep(10)
+    sleep(30)
     self.assertTrue(self.disk.status == 'idle')
 
   def test_40_GetStatus(self):
     res = self.disk.getStatus()
     sleep(1)
-    self.assertTrue(type(res), dict)
+    self.assertTrue(type(res) == dict)
 
   def test_50_DownloadNew(self):
     self.disk.disconnect()
@@ -94,7 +95,7 @@ class test_Disk(unittest.TestCase):
     path = path_join(self.disk.path, 'word.docx')
     remove(path)
     self.disk.connect()
-    sleep(10)
+    sleep(20)
     self.assertTrue(pathExists(path))
     self.assertTrue(self.disk.status == 'idle')
 
@@ -102,12 +103,12 @@ class test_Disk(unittest.TestCase):
     self.disk.disconnect()
     rmtree(path_join(self.disk.path, 'd1'))
     self.disk.connect()
-    sleep(7)
+    sleep(20)
     stat, _ = self.disk.cloud.getResource('d1')
     self.assertFalse(stat)
     self.assertTrue(self.disk.status == 'idle')
 
-  def test_70_UplodNew(self):
+  def test_70_UplodNew_offLine(self):
     self.disk.disconnect()
     path = path_join(self.disk.path, 'd1', 'd2')
     makedirs(path)
@@ -115,11 +116,24 @@ class test_Disk(unittest.TestCase):
     with open(path, 'wt') as f:
       f.write('test test file file')
     self.disk.connect()
-    sleep(10)
-    stat, _ = self.disk.cloud.getResource('dq/d2/file')
+    sleep(20)
+    stat, _ = self.disk.cloud.getResource('d1/d2/file')
     self.assertTrue(stat)
     self.assertTrue(self.disk.status == 'idle')
 
+  def test_75_UplodUpd_onLine(self):
+    with open('d1/d2/file', 'wt') as f:
+      f.write('test file')
+    sleep(20)
+    stat, _ = self.disk.cloud.getResource('d1/d2/file')
+    self.assertTrue(stat)
+    self.assertTrue(self.disk.status == 'idle')
+
+  def test_80_list(self):
+    l = 0
+    for i in self.disk.cloud.getList(chunk=5):
+      l += 1
+    self.assertTrue(l > 0)
 
   def test_90_Exit(self):
     self.assertEqual(self.disk.exit(), 0)

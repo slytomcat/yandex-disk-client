@@ -20,6 +20,8 @@
 import requests
 from time import sleep
 from json import dumps
+from logging import error
+
 
 class Cloud(object):
   def __init__(self, token):
@@ -83,7 +85,7 @@ class Cloud(object):
         if r["status"] == "success":
           return True, rets
       else:
-        print('Async op ["%s"] returned %d' % (rets, status))
+        error('Async op ["%s"] returned %d' % (rets, status))
         return False, rets
 
   def getDiskInfo(self):
@@ -93,7 +95,7 @@ class Cloud(object):
     if status == code:
       return True, res
     else:
-      print('info returned %d' % status)
+      error('Info returned %d' % status)
       return False, 'info'
 
   def getLast(self):
@@ -103,7 +105,7 @@ class Cloud(object):
     if status == code:
       return True, [item['path'].replace('disk:/', '') for item in res['items']]
     else:
-      print('last returned %d' % status)
+      error('Last returned %d' % status)
       return False, 'last'
 
   def getResource(self, path):
@@ -113,7 +115,7 @@ class Cloud(object):
       res['path'] = res['path'].replace('disk:/', '')
       return True, res
     else:
-      print('res %s returned %d' % (path, status))
+      error('Resource %s returned %d' % (path, status))
       return False, 'res ' + path
 
   def setProps(self, path, **props):
@@ -123,7 +125,7 @@ class Cloud(object):
     if status == code:
       return True, rets
     else:
-      print('%s returned %d' % (rets, status))
+      error('%s returned %d' % (rets, status))
       return False, rets + ' code: ' + str(status)
 
   def getList(self, chunk=20, offset=0):
@@ -138,7 +140,7 @@ class Cloud(object):
         ret[-1]['custom_properties'] = i.get('custom_properties')
       return True, ret
     else:
-      print('list returned %d' % status)
+      error('list returned %d' % status)
       return False, 'list'
 
   def mkDir(self, path):
@@ -148,7 +150,7 @@ class Cloud(object):
     if status == code:
       return True, rets
     else:
-      print('%s returned %d' % (rets, status))
+      error('%s returned %d' % (rets, status))
       return False, rets
 
   def delete(self, path, perm=False):
@@ -160,7 +162,7 @@ class Cloud(object):
     elif status == 202:
       return self._wait(res['href'], rets)
     else:
-      print('%s returned %d' % (rets, status))
+      error('%s returned %d' % (rets, status))
       return False, rets
 
   def trash(self):
@@ -172,7 +174,7 @@ class Cloud(object):
     elif status == 202:
       return self._wait(res['href'], rets)
     else:
-      print('%s returned %d' % (rets, status))
+      error('%s returned %d' % (rets, status))
       return False, rets
 
   def move(self, pathfrom, pathto):
@@ -184,7 +186,7 @@ class Cloud(object):
     elif status == 202:
       return self._wait(res['href'], rets)
     else:
-      print('%s returned %d' % (rets, status))
+      error('%s returned %d' % (rets, status))
       return False, rets
 
   def copy(self, pathfrom, pathto):
@@ -196,7 +198,7 @@ class Cloud(object):
     elif status == 202:
       return self._wait(res['href'], rets)
     else:
-      print('%s returned %d' % (rets, status))
+      error('%s returned %d' % (rets, status))
       return False, rets
 
   def upload(self, lpath, path, ow=True):
@@ -211,7 +213,7 @@ class Cloud(object):
           return True, rets
       except FileNotFoundError:
         status = 'FileNotFoundError'
-    print('%s returned %s' % (rets, str(status)))
+    error('%s returned %s' % (rets, str(status)))
     return False, rets
 
   def download(self, path, lpath):
@@ -227,5 +229,5 @@ class Cloud(object):
         return True, rets
       else:
         status = r.status_code
-    print('%s returned %d' % (rets, status))
+    error('%s returned %d' % (rets, status))
     return False, rets

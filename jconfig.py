@@ -21,6 +21,8 @@
 #
 #
 from json import dump as jdump, load as jload
+from os.path import expanduser
+from logging import info, error, debug, critical, warning
 
 class Config(dict):
   ''' General purpose configuration class.
@@ -33,29 +35,49 @@ class Config(dict):
 
           Automatic file loading can be disabled via False value in the optional parameter 'load'.
 
-        config.append(dictValue) - add values from dictValue to config object.
+        config.append(dictOfValues) - add values from dictOfValues to config object.
 
-        status = config.load(filePath) - loads the config object from file.
+        config.erase() - clear config object.
 
-        status = config.save(filePath) - saves the config into the file.
+        status = config.load(filePath) - loads the config object from file. Returns True on success.
 
-          Returned value from load and save is the status of operation: True in case of sucsess
+        status = config.save(filePath) - saves the config into the file. Returns True on success.
+
+          Returned value from load and save is the status of operation: True in case of success
           and False in case of any failure.
 
           Parameter filePath is optional for load and save methods, if it is missed then
           the filePath which was passed to the constructor is used.
 
+      The configuration values can be accessed by any method of dict type. For example:
+
+        config[key] - returns the value of key or raises Exception if key not in config
+
+        config.get(key, [default]) - returns the value of key if key exists otherway it returns
+           default on None if no default provided.
+
+        config.setdefault(key, default) returns result similar to get methd but in additional
+           it sets the key as the default value it it was not defined before.
+
+        del config[key] - removes key: value pair from the config object
+
+        config.pop(key) - returns the value of key and removes the key:value pair from config object
+
+        config[key] = value - sets the value for key
+        ...
+
+
       Properties:
 
-        config.loaded - True when config object is loaded from file. False - object is not loaded.
+        config.loaded - True when configuration object is loaded from file. False == not loaded.
 
         config.changed - Indicator of changes in the object that are not yet saved to the file.
                          Application can use it for tracing of changes to avoid unnecessary
                          save operations. Within the class this flag is cleared (set to False)
-                         after successful save or load and it is raised (set to True) after append.
+                         after successful save or load and it set to True after append or clear.
   '''
   def __init__(self, filePath, load=True):
-    self._filePath = filePath
+    self._filePath = expanduser(filePath)
     self.changed = False
     if load:
       self.load()
@@ -63,8 +85,7 @@ class Config(dict):
       self.loaded = False
 
   def load(self, filePath=None):
-    if filePath is not None:
-      self._filePath = filePath
+    self._filePath = expanduser(filePath or self._filePath)
     try:
       with open(self._filePath, 'rt') as f:
         self.append(jload(f))
@@ -72,24 +93,28 @@ class Config(dict):
       self.loaded = True
       ok = True
     except:
+      warning("File %s can't be read" % self._filePath)
       self.loaded = False
       ok = False
     return ok
 
   def save(self, filePath=None):
-    if filePath is not None:
-      self._filePath = filePath
+    self._filePath = expanduser(filePath or self._filePath)
     try:
       with open(self._filePath, 'wt') as f:
         jdump(self, f, indent=2)
       self.changed = False
-      ok = True
+      return True
     except:
-      ok = False
-    return ok
+      warning("File %s can't be written" % self._filePath)
+      return False
 
   def append(self, dictVal):
-    if dictVal:
-      for key, val in dictVal.items():
-        self[key] = val
+    if type(dictVal) is dict:
+      self.update(dictVal)
+      self.changed = True
+
+  def erase(self):
+    if self != dict():
+      self.clear()
       self.changed = True
