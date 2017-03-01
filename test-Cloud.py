@@ -27,11 +27,11 @@ from Cloud import Cloud
 
 class test_Cloud(unittest.TestCase):
   '''Local test token have to be store_requestd in file 'OAuth.info' with following format:
-     CLOUD_TOKEN:  <OAuth token>
-     CircleCi token is in the environment variable CLOUD_TOKEN
+     CLOUD_TOKEN/API_TOKEN:  <OAuth token>
+     CircleCi token is in the environment variable CLOUD_TOKEN/API_TOKEN
   '''
-  cloud = Cloud(getenv('CLOUD_TOKEN') if getenv('CIRCLE_ENV') == 'test' else
-                findall(r'CLOUD_TOKEN: (.*)', open('OAuth.info', 'rt').read())[0].strip())
+  cloud = Cloud(getenv('API_TOKEN') if getenv('CIRCLE_ENV') == 'test' else
+                findall(r'API_TOKEN: (.*)', open('OAuth.info', 'rt').read())[0].strip())
 
   def test_DiskInfo(self):
     stat, res = self.cloud.getDiskInfo()
@@ -41,12 +41,12 @@ class test_Cloud(unittest.TestCase):
   def test_Dir_ops(self):
     stat, res = self.cloud.mkDir('testdir')
     self.assertTrue(stat)
+    stat, res = self.cloud.move('testdir', 'not_existing_dir/bla-bla')
+    self.assertFalse(stat)
     stat, res = self.cloud.move('testdir', 'newtestdir')
     self.assertTrue(stat)
     stat, res = self.cloud.getResource('newtestdir')
     self.assertTrue(stat)
-    stat, res = self.cloud.move('newtestdir', 'not_existing_dir/bla-bla')
-    self.assertFalse(stat)
     stat, res = self.cloud.copy('newtestdir', 'not_existing_dir/bla-bla')
     self.assertFalse(stat)
     stat, res = self.cloud.mkDir('not_existing_dir/bla-bla/dir')

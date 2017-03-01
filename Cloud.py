@@ -147,7 +147,7 @@ class Cloud(object):
     req, code = self.CMD['mkdir']
     rets = 'mkdir ' + path
     status, res = self._request(req, path)
-    if status == code:
+    if status == code or status == 409:  # 409 - already exists - it is not fail in this case
       return True, rets
     else:
       error('%s returned %d' % (rets, status))
@@ -159,7 +159,7 @@ class Cloud(object):
     status, res = self._request(req, path, 'true' if perm else 'false')
     if status == code:
       return True, rets
-    elif status == 202:
+    elif status == 202 or status == 404:  # 404 - not exists - it is not fail in this case
       return self._wait(res['href'], rets)
     else:
       error('%s returned %d' % (rets, status))

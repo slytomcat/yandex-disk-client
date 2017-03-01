@@ -40,8 +40,8 @@ def sleep(timeout):
 '''
 
 class test_Disk(unittest.TestCase):
-  token = (getenv('CLOUD_TOKEN') if getenv('CIRCLE_ENV') == 'test' else
-           findall(r'CLOUD_TOKEN: (.*)', open('OAuth.info', 'rt').read())[0].strip())
+  token = (getenv('API_TOKEN') if getenv('CIRCLE_ENV') == 'test' else
+           findall(r'API_TOKEN: (.*)', open('OAuth.info', 'rt').read())[0].strip())
   disk = None
 
   def setUp(self):
@@ -70,12 +70,12 @@ class test_Disk(unittest.TestCase):
   def test_20_TestSequence(self):
     chdir(self.disk.path)
     call(['bash', 'test.sh'])
-    sleep(20)
+    sleep(30)
     self.assertTrue(self.disk.status == 'idle')
 
   def test_25_FullSync(self):
     self.disk.fullSync()
-    sleep(20)
+    sleep(30)
     self.assertTrue(self.disk.status == 'idle')
 
   def test_30_Trush(self):
@@ -95,7 +95,7 @@ class test_Disk(unittest.TestCase):
     path = path_join(self.disk.path, 'word.docx')
     remove(path)
     self.disk.connect()
-    sleep(20)
+    sleep(30)
     self.assertTrue(pathExists(path))
     self.assertTrue(self.disk.status == 'idle')
 
@@ -103,7 +103,7 @@ class test_Disk(unittest.TestCase):
     self.disk.disconnect()
     rmtree(path_join(self.disk.path, 'd1'))
     self.disk.connect()
-    sleep(20)
+    sleep(30)
     stat, _ = self.disk.cloud.getResource('d1')
     self.assertFalse(stat)
     self.assertTrue(self.disk.status == 'idle')
@@ -116,7 +116,7 @@ class test_Disk(unittest.TestCase):
     with open(path, 'wt') as f:
       f.write('test test file file')
     self.disk.connect()
-    sleep(20)
+    sleep(30)
     stat, _ = self.disk.cloud.getResource('d1/d2/file')
     self.assertTrue(stat)
     self.assertTrue(self.disk.status == 'idle')
@@ -124,7 +124,7 @@ class test_Disk(unittest.TestCase):
   def test_75_UplodUpd_onLine(self):
     with open('d1/d2/file', 'wt') as f:
       f.write('test file')
-    sleep(20)
+    sleep(30)
     stat, _ = self.disk.cloud.getResource('d1/d2/file')
     self.assertTrue(stat)
     self.assertTrue(self.disk.status == 'idle')

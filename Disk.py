@@ -33,6 +33,8 @@ from datetime import datetime
 from time import time
 from logging import info, error, debug, critical, warning
 
+
+
 def in_paths(path, paths):
   '''Check that path is within one of paths
      Examples:
@@ -188,9 +190,7 @@ class Disk(object):
       self.errorReason = "Can't access the local folder %s" % self.path
       critical(self.errorReason)
     else:
-      self.cloud = Cloud(self.user['auth'],
-                         dataFolderPath,
-                         self.path)
+      self.cloud = Cloud(self.user['auth'], dataFolderPath, self.path)
       self.executor = ThreadPoolExecutor()
       self.downloads = set()  # set of currently downloading files
       # event handler thread
