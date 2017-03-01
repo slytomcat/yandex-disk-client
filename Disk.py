@@ -31,7 +31,7 @@ from tempfile import NamedTemporaryFile as tempFile
 from shutil import move as fileMove
 from datetime import datetime
 from time import time
-from logging import info, error, debug, critical, warning
+from logging import debug, info, warning, error, critical
 
 
 
@@ -48,19 +48,19 @@ def in_paths(path, paths):
 class Cloud(_Cloud):    # redefined cloud class for implement application level logic
   ''' - all paths in parameters are absolute paths only
       - download/upload have only 1 parameter - absolute path of file
-      - getList converted to generator that yields individual paths
+      - getList converted to generator that yields individual file
       - download is performed through the temporary file
       - upload stores uid, gid, mode of file in custom_properties
       - download restores uid, gid, mode from custom_properties of file
       - history data updates according to the success operations
   '''
   def __init__(self, token, work_dir, path):
-    self.h_data = Config(path_join(work_dir,'hist.data'))  # History data {path: lastModifiedDateTime}
+    self.h_data = Config(path_join(work_dir, 'hist.data'))  # History data {path: lastModifiedDateTime}
     self.path = path
     self.work_dir = work_dir
     super().__init__(token)
 
-  def getList(self, chunk=None):  # getFullList is a generator that yields file list by chunks
+  def getList(self, chunk=None):  # getList is a generator that yields individual file
     offset = 0
     chunk = chunk or 30
     while True:
@@ -90,9 +90,9 @@ class Cloud(_Cloud):    # redefined cloud class for implement application level 
     if status:
       try:
         fileMove(temp, path)
+        self.h_data[path] = file_info(path).st_mtime
       except:
         status = False
-      self.h_data[path] = file_info(path).st_mtime
       self.setUGM(path, *self.getUGM(r_path))
     return status, res
 
@@ -334,7 +334,7 @@ class Disk(object):
     def taskCB(ft):
       res = ft.result()
       unf = self.executor.unfinished()
-      debug('Done: %s, %d unfinished' % (str(res), unf))
+      info('Done: %s, %d unfinished' % (str(res), unf))
       if isinstance(res, tuple):
         stat, rets = res      # it is cloud operation
         if not stat:
@@ -352,7 +352,7 @@ class Disk(object):
     ft.add_done_callback(taskCB)
     if self.status != 'busy':
       self._setStatus('busy')
-    debug('submit %s %s' % (str(task) , str(args)))
+    info('submit %s %s' % (str(task) , str(args)))
 
   def fullSync(self):
     '''Execute full synchronization within PoolExecutor
@@ -419,7 +419,7 @@ class Disk(object):
                 # - download if the cloud file newer than the local, or
                 # - upload if the local file newer than the cloud file.
                 if l_t > h_t and c_t > h_t:     # conflict
-                  debug('conflict')
+                  info('conflict')
                   continue ### it is not fully designed and not tested yet !!!
                   # Concept: rename older file to file.older and copy both files --> cloud and local
                   path2 = path + '.older'
@@ -493,7 +493,7 @@ class Disk(object):
             # directory have to be created before start of uploading a file in it
             # do it in-line as it rather fast operation
             s, r = self.cloud.mkDir(d)
-            debug('done in-line %s %s'%(str(s), str(r)))
+            info('done in-line %s %s'%(str(s), str(r)))
             ### !need to check success of folder creation! !need to decide what to do in case of error!
         for f in files:
           f = path_join(root, f)
@@ -544,7 +544,7 @@ class Disk(object):
           break
         for d in dirs:
           s, r = self.cloud.mkDir(path_join(root, d))
-          debug('done in-line %s %s'%(str(s), str(r)))
+          info('done in-line %s %s'%(str(s), str(r)))
           ### !need to check success of folder creation! !need to decide what to do in case of error!
         for f in files:
           submit(self.cloud.upload, (path_join(root, f),))
@@ -553,13 +553,13 @@ class Disk(object):
     while not self.shutdown:
       event = self.watch.get()
       if event is not None:
-        debug(event)
+        info(event)
         ''' event.pathname - full path
         '''
         while event.mask & (IN_MOVED_FROM | IN_MOVED_TO):
           try:
             event2 = self.watch.get(timeout=0.1)
-            debug(event2)
+            info(event2)
             try:
               cookie = event2.cookie
             except AttributeError:
@@ -673,7 +673,7 @@ if __name__ == '__main__':
   from gettext import translation
   from signal import signal, SIGTERM, SIGINT
   from logging import basicConfig as logConfig
-  logConfig(level=10, format='%(asctime)s %(levelname)s %(message)s')
+  logConfig(level=30, format='%(asctime)s %(levelname)s %(message)s')
 
   def appExit(msg=None):
     for disk in disks:

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 #
-#  test_self.cloud.py
+#  test_Cloud.py
 #
-#  Copyright 2017 Sly_tom_cat <stc@stc-nb>
+#  Copyright 2017 Sly_tom_cat <slytomcat@mail.ru>
 #
 #  This program is free software; you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -38,7 +38,10 @@ class test_Cloud(unittest.TestCase):
     self.assertTrue(stat)
     self.assertIs(type(res), dict)
 
+
   def test_Dir_ops(self):
+    stat, res = self.cloud.mkDir('testdir')
+    self.assertTrue(stat)
     stat, res = self.cloud.mkDir('testdir')
     self.assertTrue(stat)
     stat, res = self.cloud.move('testdir', 'not_existing_dir/bla-bla')
@@ -83,7 +86,7 @@ class test_Cloud(unittest.TestCase):
     stat, res = self.cloud.getResource('not_existing_file.bla_bla')
     self.assertFalse(stat)
 
-  def trush(self):
+  def _trush(self):
     stat, res = self.cloud.trash()
     self.assertTrue(stat)
     stat, res = self.cloud.getDiskInfo()
@@ -91,8 +94,8 @@ class test_Cloud(unittest.TestCase):
     self.assertEqual(res.get('trash_size'), 0)
 
   def test_trush(self):
-    self.trush()
-    self.trush()
+    self._trush()
+    self._trush()
 
   def test_up_down1_up(self):
     stat, res = self.cloud.upload('README.md', 'README.md')
@@ -125,5 +128,4 @@ class test_Cloud(unittest.TestCase):
 
 
 if __name__ == '__main__':
-
   unittest.main()
