@@ -185,8 +185,8 @@ class Disk(object):
       except:
         self.status = 'fault'
     if self.status == 'fault':
-      self.errorReason = "Critical error: Can't access the local folder %s" % self.path
-      error(self.errorReason)
+      self.errorReason = "Can't access the local folder %s" % self.path
+      critical(self.errorReason)
     else:
       self.cloud = Cloud(self.user['auth'],
                          dataFolderPath,
@@ -493,7 +493,7 @@ class Disk(object):
             # directory have to be created before start of uploading a file in it
             # do it in-line as it rather fast operation
             s, r = self.cloud.mkDir(d)
-            debug('done in-line', s, r)
+            debug('done in-line %s %s'%(str(s), str(r)))
             ### !need to check success of folder creation! !need to decide what to do in case of error!
         for f in files:
           f = path_join(root, f)
@@ -544,7 +544,7 @@ class Disk(object):
           break
         for d in dirs:
           s, r = self.cloud.mkDir(path_join(root, d))
-          debug('done in-line', s, r)
+          debug('done in-line %s %s'%(str(s), str(r)))
           ### !need to check success of folder creation! !need to decide what to do in case of error!
         for f in files:
           submit(self.cloud.upload, (path_join(root, f),))
