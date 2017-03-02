@@ -91,6 +91,10 @@ class Cloud(object):
           if res.get("status") == "success":
             status = code
             break
+          if res.get("status") == "failed":
+            status = 404
+            result = {'error': 'FailedAsyncOperation'}
+            break
         else:
           status = st
           result = res
@@ -194,10 +198,9 @@ class Cloud(object):
       error('%s returned %s' % (cmd, str(result)))
       return False, (cmd, result)
 
-  def move(self, pathfrom, pathto):
-    ''' Moves file/folder from one path to another
+  def _cpmv(self, cmd, pathfrom, pathto):
+    ''' Copy and move do everything similar except the command.
     '''
-    cmd = 'move'
     status, result = self._cmd_request(cmd, pathfrom, pathto)
     if status:
       return True, (cmd, pathfrom, pathto)
@@ -205,16 +208,11 @@ class Cloud(object):
       error('%s %s %s returned %s' % (cmd, pathfrom, pathto, str(result)))
       return False, (cmd, pathfrom, pathto, result)
 
-  def copy(self, pathfrom, pathto):
-    ''' Makes copy of file/path
-    '''
-    cmd = 'copy'
-    status, result = self._cmd_request(cmd, pathfrom, pathto)
-    if status:
-      return True, (cmd, pathfrom, pathto)
-    else:
-      error('%s %s %s returned %s' % (cmd, pathfrom, pathto, str(result)))
-      return False, (cmd, pathfrom, pathto, result)
+  move = lambda self, pathfrom, pathto: self._cpmv('move', pathfrom, pathto)
+  ''' Moves file/folder from one path to another '''
+
+  copy = lambda self, pathfrom, pathto: self._cpmv('copy', pathfrom, pathto)
+  ''' Makes copy of file/path from one path to another '''
 
   def upload(self, lpath, path, ow=True):
     cmd = 'up'

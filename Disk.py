@@ -668,6 +668,7 @@ class Disk(object):
 
 ''' Interactive execution code
 '''
+
 if __name__ == '__main__':
   from sys import exit as sysExit
   from gettext import translation
