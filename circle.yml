@@ -13,6 +13,6 @@ machine:
 
 test:
   override:
-    - nosetests -v --with-coverage --cover-package=Disk,Cloud,jconfig
+    - nosetests -v --with-coverage --cover-package=Disk,Cloud,jconfig --xunit-file=$CIRCLE_TEST_REPORTS/xunit/xunit.xml --cover-xml-file=$CIRCLE_TEST_REPORTS/cover/cover.xml
 
 
