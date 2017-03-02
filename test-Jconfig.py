@@ -21,50 +21,58 @@
 #
 #
 import unittest
-from os.path import exists
+from os.path import exists, expanduser
 from os import remove
 from jconfig import Config
 
 class Test_jconfig(unittest.TestCase):
-  def setUp(self):
-    self.path = 'cfg.cfg'
-    if exists(self.path):
-      remove(self.path)
+  defConf = {'type': 'std',
+             'disks': {'stc': {'login': 'stc',
+                               'path': '~/ydd',
+                               'auth': '87816741346',
+                               'start': True,
+                               'exclude': ['tests', 'other/private'],
+                               'ro': False,
+                               'ow': False },
+                       'stc1':{'login': 'stc',
+                               'path': '~/yd',
+                               'auth': '84458090987',
+                               'start': True,
+                               'exclude': ['new'],
+                               'ro': True,
+                               'ow': False }
+                      }
+            }
 
-  def test_jconfig(self):
-    defConf = {'type': 'std',
-               'disks': {'stc': {'login': 'stc',
-                                 'path': '~/ydd',
-                                 'auth': '87816741346',
-                                 'start': True,
-                                 'exclude': ['tests', 'other/private'],
-                                 'ro': False,
-                                 'ow': False },
-                         'stc1':{'login': 'stc',
-                                 'path': '~/yd',
-                                 'auth': '84458090987',
-                                 'start': True,
-                                 'exclude': ['new'],
-                                 'ro': True,
-                                 'ow': False }
-                        }
-              }
+  def setUp(self):
+    self.path = '~/cfg.cfg'
+
+  def test_10_create_append_save(self):
     config = Config(self.path, load=False)
     self.assertEqual(len(config), 0)
     self.assertFalse(config.loaded)
-    config.append(defConf)
+    config.append(self.defConf)
     self.assertEqual(len(config), 2)
     self.assertTrue(config.changed)
     if config.changed:
-      config.save()
+      self.assertTrue(config.save())
     self.assertFalse(config.changed)
-    newConfig = Config(self.path)
-    self.assertTrue(newConfig.loaded)
-    self.assertEqual(config, newConfig)
 
-  def tearDown(self):
-    if exists(self.path):
-      remove(self.path)
+  def test_20_load_check_clear(self):
+    config = Config(self.path)
+    self.assertTrue(config.loaded)
+    self.assertEqual(config, self.defConf)
+    config.erase()
+    self.assertTrue(config.changed)
+
+  def test_30_wrong_file(self):
+    config = Config('not_existing_file')
+    self.assertFalse(config.loaded)
+    self.assertFalse(config.load('another_not_existing_file'))
+    self.assertFalse(config.loaded)
+    config.changed = True
+    self.assertFalse(config.save('/root/not_accesseble_file'))
+    self.assertTrue(config.changed)
 
 if __name__ == '__main__':
   unittest.main()

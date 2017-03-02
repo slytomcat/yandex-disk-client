@@ -13,6 +13,6 @@ machine:
 
 test:
   override:
-    - nosetests -v --with-coverage
-#        parallel: true
+    - nosetests -v --with-coverage --cover-package=Disk,Cloud,jconfig
+
 

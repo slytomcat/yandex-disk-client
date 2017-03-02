@@ -20,18 +20,13 @@
 import requests
 from time import sleep
 from json import dumps
+from logging import error
+
 
 class Cloud(object):
   def __init__(self, token):
     # make headers for requests that require authorization
     self._headers = {'Accept': 'application/json', 'Authorization': token}
-
-  def _request(self, req, *args, **kwargs):
-    '''Perform the request with expanded URL via specified method using predefined headers
-    '''
-    method, url = req
-    r = method(url.format(*args), data=kwargs.get('dt'), headers=self._headers)
-    return r.status_code, r.json() if r.text else ''
 
   CMD = {'info':  ((requests.get,
                     'https://cloud-api.yandex.net/v1/disk'
@@ -43,7 +38,7 @@ class Cloud(object):
                    200),
          'res':   ((requests.get,
                     'https://cloud-api.yandex.net/v1/disk/resources?path={}'
-                    '&fields=size%2Cmodified%2Ccreated%2Csha256%2Cpath%2Ctype%2Ccustom_properties'),
+                    '&fields=size%2Cmodified%2Csha256%2Cpath%2Ctype%2Ccustom_properties'),
                    200),
          'prop':  ((requests.patch,
                     'https://cloud-api.yandex.net/v1/disk/resources/?path={}'
@@ -74,162 +69,179 @@ class Cloud(object):
                     'https://cloud-api.yandex.net/v1/disk/resources/download?path={}'),
                    200)}
 
-  def _wait(self, url, rets):
-    '''waits for asynchronous operation completion '''
-    while True:
-      sleep(0.777)  # reasonable pause between continuous requests
-      status, r = self._request((requests.get, url))
-      if status == 200:
-        if r["status"] == "success":
-          return True, rets
+  def _request(self, req, *args, **kwargs):
+    ''' Perform the request with expanded URL via specified method using predefined headers
+    '''
+    method, url = req
+    r = method(url.format(*args), **kwargs, headers=self._headers)
+    return r.status_code, r.json() if r.text else ''
+
+  def _cmd_request(self, cmd, *args, **kwargs):
+    ''' Perform requers by command
+        It also handles asynchronious operations
+    '''
+    req, code = self.CMD[cmd]
+    status, result = self._request(req, *args, **kwargs)
+    if status == 202:  # asyncronious operation
+      url = result['href']
+      while True:
+        sleep(0.777)  # reasonable pause between continuous requests
+        st, res = self._request((requests.get, url))
+        if st == 200:
+          if res.get("status") == "success":
+            status = code
+            break
+          if res.get("status") == "failed":
+            status = 404
+            result = {'error': 'FailedAsyncOperation'}
+            break
         else:
-          continue
-      else:
-        print('Async op ["%s"] returned %d' % (rets, status))
-        return False, rets
+          status = st
+          result = res
+          break
+    if status != code:
+      result['code'] = status
+      return False, result
+    else:
+      return True, result
 
   def getDiskInfo(self):
-    '''Receives cloud disk status information'''
-    req, code = self.CMD['info']
-    status, res = self._request(req)
-    if status == code:
-      return True, res
+    ''' Receives cloud disk status information'''
+    cmd = 'info'
+    status, result = self._cmd_request(cmd)
+    if status:
+      return True, result
     else:
-      print('info returned %d' % status)
-      return False, 'info'
+      error('%s returned %s' % (cmd, str(result)))
+      return False, (cmd, result)
 
   def getLast(self):
-    '''Receives 10 last synchronized items'''
-    req, code = self.CMD['last']
-    status, res = self._request(req)
-    if status == code:
-      return True, [item['path'].replace('disk:/', '') for item in res['items']]
+    ''' Receives 10 last synchronized items'''
+    cmd = 'last'
+    status, result = self._cmd_request(cmd)
+    if status:
+      return True, [item['path'].replace('disk:/', '') for item in result['items']]
     else:
-      print('last returned %d' % status)
-      return False, 'last'
+      error('%s returned %s' % (cmd, str(result)))
+      return False, (cmd, result)
 
   def getResource(self, path):
-    req, code = self.CMD['res']
-    status, res = self._request(req, path)
-    if status == code:
-      res['path'] = res['path'].replace('disk:/', '')
-      if res.get('items', False):   # remove items form directory resource info
-        del res['items']
-      return True, res
+    ''' Returns folder/file properties'''
+    cmd = 'res'
+    status, result = self._cmd_request(cmd, path)
+    if status:
+      result['path'] = result['path'].replace('disk:/', '')
+      return True, result
     else:
-      print('res %s returned %d' % (path, status))
-      return False, 'res ' + path
+      error('%s %s returned %s' % (cmd, path, str(result)))
+      return False, (cmd, path, result)
 
   def setProps(self, path, **props):
-    req, code = self.CMD['prop']
-    rets = 'prop ' + path
-    status, res = self._request(req, path, dt=dumps({"custom_properties": props}))
-    if status == code:
-      return True, rets
+    ''' Sets customer propertie to file/folder
+    '''
+    cmd = 'prop'
+    status, result = self._cmd_request(cmd, path, data=dumps({"custom_properties": props}))
+    if status:
+      return True, (cmd, path)
     else:
-      print('%s returned %d' % (rets, status))
-      return False, rets
+      error('%s %s returned %s' % (cmd, path, str(result)))
+      return False, (cmd, path, result)
 
   def getList(self, chunk=20, offset=0):
-    req, code = self.CMD['list']
-    status, res = self._request(req, str(chunk), str(offset))
-    if status == code:
+    ''' Returns sorted list of cloud files by parts (chunk items starting from offset)
+    '''
+    cmd = 'list'
+    status, result = self._cmd_request(cmd, str(chunk), str(offset))
+    if status:
       ret = []
-      for i in res['items']:
+      for i in result['items']:
         ret.append({key: i[key] if key != 'path' else i[key].replace('disk:/', '')
-                     for key in ['path', 'type', 'modified', 'sha256']
-                    })
+                    for key in ['path', 'type', 'modified', 'sha256', 'size'] })
         ret[-1]['custom_properties'] = i.get('custom_properties')
       return True, ret
     else:
-      print('list returned %d' % status)
-      return False, 'list'
+      error('%s returned %s' % (cmd, str(result)))
+      return False, (cmd, result)
 
   def mkDir(self, path):
-    req, code = self.CMD['mkdir']
-    rets = 'mkdir ' + path
-    status, res = self._request(req, path)
-    if status == code:
-      return True, rets
+    ''' Makes new cloud folder
+    '''
+    cmd = 'mkdir'
+    status, result = self._cmd_request(cmd, path)
+    if status:
+      return True, (cmd, path)
     else:
-      print('%s returned %d' % (rets, status))
-      return False, rets
+      if result['error'] == 'DiskPathPointsToExistentDirectoryError':
+        return True, (cmd, path)
+      else:
+        error('%s %s returned %s' % (cmd, path, str(result)))
+        return False, (cmd, path, result)
 
   def delete(self, path, perm=False):
-    req, code = self.CMD['del']
-    rets = 'del ' + path
-    status, res = self._request(req, path, 'true' if perm else 'false')
-    if status == code:
-      return True, rets
-    elif status == 202:
-      return self._wait(res['href'], rets)
+    ''' Deletes file/folder from cloud disk'''
+    cmd ='del'
+    status, result = self._cmd_request(cmd, path, 'true' if perm else 'false')
+    if status:
+      return True, (cmd, path)
     else:
-      print('%s returned %d' % (rets, status))
-      return False, rets
+      error('%s %s returned %s' % (cmd, path, str(result)))
+      return False, (cmd, path, result)
 
   def trash(self):
-    req, code = self.CMD['trash']
-    rets = 'trash'
-    status, res = self._request(req)
-    if status == code:
-      return True, rets
-    elif status == 202:
-      return self._wait(res['href'], rets)
+    ''' Makes trush empty
+    '''
+    cmd = 'trash'
+    status, result = self._cmd_request(cmd)
+    if status:
+      return True, (cmd,)
     else:
-      print('%s returned %d' % (rets, status))
-      return False, rets
+      error('%s returned %s' % (cmd, str(result)))
+      return False, (cmd, result)
 
-  def move(self, pathfrom, pathto):
-    req, code = self.CMD['move']
-    rets = 'move %s %s' % (pathfrom, pathto)
-    status, res = self._request(req, pathfrom, pathto)
-    if status == code:
-      return True, rets
-    elif status == 202:
-      return self._wait(res['href'], rets)
+  def _cpmv(self, cmd, pathfrom, pathto):
+    ''' Copy and move do everything similar except the command.
+    '''
+    status, result = self._cmd_request(cmd, pathfrom, pathto)
+    if status:
+      return True, (cmd, pathfrom, pathto)
     else:
-      print('%s returned %d' % (rets, status))
-      return False, rets
+      error('%s %s %s returned %s' % (cmd, pathfrom, pathto, str(result)))
+      return False, (cmd, pathfrom, pathto, result)
 
-  def copy(self, pathfrom, pathto):
-    req, code = self.CMD['copy']
-    rets = 'copy %s %s' % (pathfrom, pathto)
-    status, res = self._request(req, pathfrom, pathto)
-    if status == code:
-      return True, rets
-    elif status == 202:
-      return self._wait(res['href'], rets)
-    else:
-      print('%s returned %d' % (rets, status))
-      return False, rets
+  move = lambda self, pathfrom, pathto: self._cpmv('move', pathfrom, pathto)
+  ''' Moves file/folder from one path to another '''
+
+  copy = lambda self, pathfrom, pathto: self._cpmv('copy', pathfrom, pathto)
+  ''' Makes copy of file/path from one path to another '''
 
   def upload(self, lpath, path, ow=True):
-    req, code = self.CMD['up']
-    rets = 'up ' + path
-    status, res = self._request(req, path, 'true' if ow else 'false')
-    if status == code:
+    cmd = 'up'
+    status, result = self._cmd_request(cmd, path, 'true' if ow else 'false')
+    if status:
       try:
         with open(lpath, 'rb') as f:
-          r = requests.put(res['href'], data = f)
+          r = requests.put(result['href'], data = f)
         if r.status_code in (201, 200):
-          return True, rets
+          return True, (cmd, path)
       except FileNotFoundError:
-        status = 'FileNotFoundError'
-    print('%s returned %s' % (rets, str(status)))
-    return False, rets
+        return False, (cmd, path, {'error': 'FileNotFoundError', 'path': lpath})
+      result = r.json() if r.text else dict()
+      result['code'] = r.status_code
+    error('%s %s returned %s' % (cmd, path, str(result)))
+    return False, (cmd, path, result)
 
   def download(self, path, lpath):
-    req, code = self.CMD['down']
-    rets = 'down ' + path
-    status, res = self._request(req, path)
-    if status == code:
-      r = requests.get(res['href'], stream=True)
+    cmd = 'down'
+    status, result = self._cmd_request(cmd, path)
+    if status:
+      r = requests.get(result['href'], stream=True)
+      ### need try except for open and write
       with open(lpath, 'wb') as f:
         for chunk in r.iter_content(2048):
           f.write(chunk)
       if r.status_code == 200:
-        return True, rets
-      else:
-        status = r.status_code
-    print('%s returned %d' % (rets, status))
-    return False, rets
+        return True, (cmd, path)
+      result = r.json() if r.text else dict()
+      result['code'] = r.status_code
+    error('%s %s returned %s' % (cmd, path, str(result)))
+    return False, (cmd, path, result)
