@@ -22,7 +22,6 @@ from time import sleep
 from json import dumps
 from logging import error
 
-
 class Cloud(object):
   def __init__(self, token):
     # make headers for requests that require authorization
@@ -71,13 +70,14 @@ class Cloud(object):
 
   def _request(self, req, *args, **kwargs):
     ''' Perform the request with expanded URL via specified method using predefined headers
+        Named arguments are passed to the request.
     '''
     method, url = req
     r = method(url.format(*args), **kwargs, headers=self._headers)
     return r.status_code, r.json() if r.text else ''
 
   def _cmd_request(self, cmd, *args, **kwargs):
-    ''' Perform requers by command
+    ''' Perform the request by command name (as defined in CMD class variable)
         It also handles asynchronious operations
     '''
     req, code = self.CMD[cmd]
@@ -93,110 +93,94 @@ class Cloud(object):
             break
           if res.get("status") == "failed":
             status = 404
-            result = {'error': 'FailedAsyncOperation'}
+            result = {'error': 'FailedAsyncOperationError'}
             break
         else:
           status = st
           result = res
           break
-    if status != code:
-      result['code'] = status
-      return False, result
-    else:
-      return True, result
+    ok = status == code
+    if not ok:
+      result['code'] = status  # add status code into error description
+    return ok, result
 
-  def getDiskInfo(self):
-    ''' Receives cloud disk status information'''
-    cmd = 'info'
-    status, result = self._cmd_request(cmd)
+  def _simple_cmd(self, cmd, *args, **kwargs):
+    ''' Command with no arguments and no result reformatting. It handles errors '''
+    status, result = self._cmd_request(cmd, *args, **kwargs)
     if status:
       return True, result
     else:
-      error('%s returned %s' % (cmd, str(result)))
-      return False, (cmd, result)
+      error('%s(%s) returned %s' % (cmd, ', '.join(str(i) for i in args), str(result)))
+      return False, (cmd, *args, result)
+
+  getDiskInfo = lambda self: self._simple_cmd('info')
+  ''' Receives cloud disk status information'''
+
+  trash = lambda self: self._simple_cmd('trash')
+  ''' Makes trush empty '''
 
   def getLast(self):
     ''' Receives 10 last synchronized items'''
     cmd = 'last'
-    status, result = self._cmd_request(cmd)
+    status, result = self._simple_cmd(cmd)
+    # Reformat the result
     if status:
-      return True, [item['path'].replace('disk:/', '') for item in result['items']]
-    else:
-      error('%s returned %s' % (cmd, str(result)))
-      return False, (cmd, result)
+      result = [item['path'].replace('disk:/', '') for item in result['items']]
+    return status, result
 
   def getResource(self, path):
     ''' Returns folder/file properties'''
     cmd = 'res'
-    status, result = self._cmd_request(cmd, path)
+    status, result = self._simple_cmd(cmd, path)
+    # Reformat the result
     if status:
       result['path'] = result['path'].replace('disk:/', '')
-      return True, result
-    else:
-      error('%s %s returned %s' % (cmd, path, str(result)))
-      return False, (cmd, path, result)
-
-  def setProps(self, path, **props):
-    ''' Sets customer propertie to file/folder
-    '''
-    cmd = 'prop'
-    status, result = self._cmd_request(cmd, path, data=dumps({"custom_properties": props}))
-    if status:
-      return True, (cmd, path)
-    else:
-      error('%s %s returned %s' % (cmd, path, str(result)))
-      return False, (cmd, path, result)
+    return status, result
 
   def getList(self, chunk=20, offset=0):
     ''' Returns sorted list of cloud files by parts (chunk items starting from offset)
     '''
     cmd = 'list'
-    status, result = self._cmd_request(cmd, str(chunk), str(offset))
+    status, result = self._simple_cmd(cmd, str(chunk), str(offset))
+    # Reformat the result
     if status:
-      ret = []
-      for i in result['items']:
-        ret.append({key: i[key] if key != 'path' else i[key].replace('disk:/', '')
-                    for key in ['path', 'type', 'modified', 'sha256', 'size'] })
-        ret[-1]['custom_properties'] = i.get('custom_properties')
-      return True, ret
-    else:
-      error('%s returned %s' % (cmd, str(result)))
-      return False, (cmd, result)
+      items = result['items']
+      result = []
+      for i in items:
+        result.append({key: i[key] if key != 'path' else i[key].replace('disk:/', '')
+                      for key in ['path', 'type', 'modified', 'sha256', 'size'] })
+        result[-1]['custom_properties'] = i.get('custom_properties')
+    return status, result
+
+  def setProps(self, path, **props):
+    ''' Sets customer propertie to file/folder '''
+    cmd = 'prop'
+    status, result = self._simple_cmd('prop', path, data=dumps({"custom_properties": props}))
+    # reformat the result
+    if status:
+      result = (cmd, path)
+    return status, result
 
   def mkDir(self, path):
-    ''' Makes new cloud folder
-    '''
+    ''' Makes new cloud folder '''
     cmd = 'mkdir'
-    status, result = self._cmd_request(cmd, path)
+    status, result = self._simple_cmd(cmd, path)
+    # special error handling
+    if not status and result[-1]['error'] == 'DiskPathPointsToExistentDirectoryError':
+      status = True
+    # reformat the result
     if status:
-      return True, (cmd, path)
-    else:
-      if result['error'] == 'DiskPathPointsToExistentDirectoryError':
-        return True, (cmd, path)
-      else:
-        error('%s %s returned %s' % (cmd, path, str(result)))
-        return False, (cmd, path, result)
+      result = (cmd, path)
+    return status, result
 
   def delete(self, path, perm=False):
     ''' Deletes file/folder from cloud disk'''
-    cmd ='del'
-    status, result = self._cmd_request(cmd, path, 'true' if perm else 'false')
+    cmd = 'del'
+    status, result = self._simple_cmd(cmd, path, 'true' if perm else 'false')
+    # reformat the result
     if status:
-      return True, (cmd, path)
-    else:
-      error('%s %s returned %s' % (cmd, path, str(result)))
-      return False, (cmd, path, result)
-
-  def trash(self):
-    ''' Makes trush empty
-    '''
-    cmd = 'trash'
-    status, result = self._cmd_request(cmd)
-    if status:
-      return True, (cmd,)
-    else:
-      error('%s returned %s' % (cmd, str(result)))
-      return False, (cmd, result)
+      result = (cmd, path)
+    return status, result
 
   def _cpmv(self, cmd, pathfrom, pathto):
     ''' Copy and move do everything similar except the command.

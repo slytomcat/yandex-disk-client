@@ -33,13 +33,13 @@ class test_Cloud(unittest.TestCase):
   cloud = Cloud(getenv('API_TOKEN') if getenv('CIRCLE_ENV') == 'test' else
                 findall(r'API_TOKEN: (.*)', open('OAuth.info', 'rt').read())[0].strip())
 
-  def test_DiskInfo(self):
+  def test_Cloud_DiskInfo(self):
     stat, res = self.cloud.getDiskInfo()
     self.assertTrue(stat)
     self.assertIs(type(res), dict)
 
 
-  def test_Dir_ops(self):
+  def test_Cloud_Dir_ops(self):
     stat, res = self.cloud.mkDir('testdir')
     self.assertTrue(stat)
     stat, res = self.cloud.mkDir('testdir')
@@ -57,23 +57,23 @@ class test_Cloud(unittest.TestCase):
     stat, res = self.cloud.delete('newtestdir')
     self.assertTrue(stat)
 
-  def test_bigDir_1copy(self):
+  def test_Cloud_bigDir_1copy(self):
     stat, res = self.cloud.copy('Music', 'MusicTest')
     self.assertTrue(stat)
 
-  def test_bigDir_2move(self):
+  def test_Cloud_bigDir_2move(self):
     stat, res = self.cloud.move('MusicTest', 'MusicTestTest')
     self.assertTrue(stat)
 
-  def test_bigDir_3delete(self):
+  def test_Cloud_bigDir_3delete(self):
     stat, res = self.cloud.delete('MusicTestTest')
     self.assertTrue(stat)
 
-  def test_props_1set(self):
+  def test_Cloud_props_1set(self):
     stat, res = self.cloud.setProps('Sea.jpg', uid=1000, gid=1000, mode=33204)
     self.assertTrue(stat)
 
-  def test_props_2get(self):
+  def test_Cloud_props_2get(self):
     stat, res = self.cloud.getResource('Sea.jpg')
     self.assertTrue(stat)
     props = res.get("custom_properties")
@@ -82,7 +82,7 @@ class test_Cloud(unittest.TestCase):
     self.assertEqual(props.get('gid'), 1000)
     self.assertEqual(props.get('mode'), 33204)
 
-  def test_wrong_res(self):
+  def test_Cloud_wrong_res(self):
     stat, res = self.cloud.getResource('not_existing_file.bla_bla')
     self.assertFalse(stat)
 
@@ -93,39 +93,38 @@ class test_Cloud(unittest.TestCase):
     self.assertTrue(stat)
     self.assertEqual(res.get('trash_size'), 0)
 
-  def test_trush(self):
+  def test_Cloud_trush(self):
     self._trush()
     self._trush()
 
-  def test_up_down1_up(self):
+  def test_Cloud_up_down1_up(self):
     stat, res = self.cloud.upload('README.md', 'README.md')
     self.assertTrue(stat)
 
-  def test_up_down2_down(self):
+  def test_Cloud_up_down2_down(self):
     stat, res = self.cloud.download('README.md', '/tmp/README.md')
     self.assertTrue(stat)
     remove('/tmp/README.md')
     self.cloud.delete('README.md')
 
-  def test_last(self):
+  def test_Cloud_last(self):
     stat, res = self.cloud.getLast()
     self.assertTrue(stat)
     self.assertIs(type(res), list)
 
-  def test_list(self):
+  def test_Cloud_list(self):
     stat, res = self.cloud.getList(chunk=5)
     self.assertTrue(stat)
     self.assertIs(type(res), list)
     self.assertEqual(len(res), 5)
 
-  def test_wrong_list(self):
+  def test_Cloud_wrong_list(self):
     stat, res = self.cloud.getList(chunk=7777777777)
     self.assertFalse(stat)
 
-  def test_wrong_delete(self):
+  def test_Cloud_wrong_delete(self):
     stat, res = self.cloud.delete('not_existing_file.bla_bla')
     self.assertFalse(stat)
-
 
 if __name__ == '__main__':
   unittest.main()
