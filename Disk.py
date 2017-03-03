@@ -347,11 +347,11 @@ class Disk(object):
         stat, rets = res      # it is cloud operation
         if not stat:
           self.error = True
-        elif isinstance(rets, str) and rets.startswith('down'):
+        elif isinstance(rets, tuple) and rets[0] == 'down':
           # Remove downloaded file from downloads
-          self.downloads -= {rets[5:]}
+          self.downloads -= {rets[1]}
       #elif isinstance(res, str) and res == 'fullSync':
-      #  pass
+      #  <do something after full sync>
       if unf == 0:  # all done
         self.downloads = set()  # clear downloads as no more downloads required
         self._setStatus('idle')
@@ -748,7 +748,7 @@ if __name__ == '__main__':
     elif cmd == 'c':
       disks[0].connect()
     elif cmd == 't':
-      print(disks[0].trash())
+      disks[0].trash()
     elif cmd == 's':
       print(disks[0].getStatus())
     elif cmd == 'f':
