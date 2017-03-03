@@ -82,6 +82,14 @@ class Cloud(_Cloud):    # redefined cloud class for implement application level 
       else:
         yield status, res
 
+  def getResource(self, path):
+    status, result = super().getResource(path)
+    if status:
+      result['path'] = path_join(self.path, result['path'])
+      result['modified'] = int(datetime.strptime(result['modified'].replace(':', ''),
+                                                 '%Y-%m-%dT%H%M%S%z').timestamp())
+    return status, result
+
   def download(self, path):    # download via temporary file to make it in transaction manner
     with tempFile(suffix='.yandex-disk-client', delete=False, dir=self.work_dir) as f:
       temp = f.name

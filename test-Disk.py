@@ -29,6 +29,8 @@ from time import sleep as _sleep
 from os import getenv, chdir, getcwd, remove, makedirs
 from os.path import join as path_join, exists as pathExists
 from shutil import rmtree
+from tempfile import NamedTemporaryFile as tempFile
+from Cloud import Cloud
 
 sleep = _sleep
 '''
@@ -88,6 +90,12 @@ class test_Disk(unittest.TestCase):
     sleep(1)
     self.assertTrue(type(res) == dict)
 
+  def test_45_list(self):
+    l = 0
+    for i in self.disk.cloud.getList(chunk=5):
+      l += 1
+    self.assertTrue(l > 0)
+
   def test_50_DownloadNew(self):
     self.disk.disconnect()
     remove(self.disk.cloud.h_data._filePath) # remove history
@@ -121,7 +129,7 @@ class test_Disk(unittest.TestCase):
     self.assertTrue(stat)
     self.assertTrue(self.disk.status == 'idle')
 
-  def test_75_UplodUpd_onLine(self):
+  def test_72_UplodUpd_onLine(self):
     with open('d1/d2/file', 'wt') as f:
       f.write('test file')
     sleep(30)
@@ -129,11 +137,57 @@ class test_Disk(unittest.TestCase):
     self.assertTrue(stat)
     self.assertTrue(self.disk.status == 'idle')
 
-  def test_80_list(self):
-    l = 0
-    for i in self.disk.cloud.getList(chunk=5):
-      l += 1
-    self.assertTrue(l > 0)
+  def test_75_UplodChanged_offLine(self):
+    self.disk.disconnect()
+    r_path = 'd1/d2/file'
+    path = path_join(self.disk.path, r_path)
+    mt = self.disk.cloud.h_data.get(path)
+    self.assertFalse(mt is None)
+    with open(r_path, 'wt') as f:
+      f.write('test test')
+    self.disk.connect()
+    sleep(30)
+    self.assertTrue(self.disk.status == 'idle')
+    stat, res = self.disk.cloud.getResource('d1/d2/file')
+    self.assertTrue(stat)
+    self.assertTrue(res['modified']> mt)
+
+  def test_77_DownloadUpd_offLine(self):
+    self.disk.disconnect()
+    r_path = 'd1/d2/file'
+    path = path_join(self.disk.path, r_path)
+    mt = self.disk.cloud.h_data.get(path)
+    with tempFile(delete=False, mode='wt') as f:
+      temp = f.name
+      f.write('file file')
+    Cloud.upload(self.disk.cloud, temp, r_path)
+    self.disk.connect()
+    sleep(30)
+    self.assertTrue(self.disk.status == 'idle')
+    self.assertTrue(self.disk.cloud.h_data.get(path) > mt)
+
+  '''
+  def test_80_Conflict(self):
+    self.disk.disconnect()
+    r_path = 'd1/d2/file'
+    path = path_join(self.disk.path, r_path)
+    mt = self.disk.cloud.h_data.get(path)
+    self.assertFalse(mt is None)
+    with open(r_path, 'wt') as f:
+      f.write('TEST TEST')
+    with tempFile(delete=False) as f:
+      temp = f.name
+      f.write('FILE FILE')
+    self.disk.Cloud.upload(self.disk.cloud, temp, r_path)
+    self.disk.connect()
+    sleep(30)
+    self.assertTrue(self.disk.status == 'idle')
+    ### need more checks
+    stat, res = self.disk.cloud.getResource('d1/d2/file')
+    self.assertTrue(stat)
+    self.assertTrue(res['modified']> mt)
+  '''
+
 
   def test_90_Exit(self):
     self.assertEqual(self.disk.exit(), 0)
