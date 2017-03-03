@@ -47,7 +47,7 @@ class Test_jconfig(unittest.TestCase):
   def setUp(self):
     self.path = '~/cfg.cfg'
 
-  def test_10_create_append_save(self):
+  def test_jconfig_10_create_append_save(self):
     config = Config(self.path, load=False)
     self.assertEqual(len(config), 0)
     self.assertFalse(config.loaded)
@@ -58,14 +58,14 @@ class Test_jconfig(unittest.TestCase):
       self.assertTrue(config.save())
     self.assertFalse(config.changed)
 
-  def test_20_load_check_clear(self):
+  def test_jconfig_20_load_check_clear(self):
     config = Config(self.path)
     self.assertTrue(config.loaded)
     self.assertEqual(config, self.defConf)
     config.erase()
     self.assertTrue(config.changed)
 
-  def test_30_wrong_file(self):
+  def test_jconfig_30_wrong_file(self):
     config = Config('not_existing_file')
     self.assertFalse(config.loaded)
     self.assertFalse(config.load('another_not_existing_file'))

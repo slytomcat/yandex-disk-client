@@ -49,54 +49,54 @@ class test_Disk(unittest.TestCase):
   def setUp(self):
     pass
 
-  def test_00_notStarted(self):
+  def test_Disk_00_notStarted(self):
     test_Disk.disk = Disk({'login': 'stc.yd', 'auth': self.token, 'path': '~/yd', 'start': False,
                            'ro': False, 'ow': False, 'exclude': ['excluded_folder']})
     sleep(2)
     self.assertTrue(self.disk.status == 'none')
     self.assertEqual(self.disk.exit(), 0)
 
-  def test_01_noAccess(self):
+  def test_Disk_01_noAccess(self):
     test_Disk.disk = Disk({'login': 'stc.yd', 'auth': self.token, 'path': '/root', 'start': True,
                            'ro': False, 'ow': False, 'exclude': ['excluded_folder']})
     sleep(2)
     self.assertTrue(self.disk.status == 'fault')
     self.assertEqual(self.disk.exit(), 0)
 
-  def test_10_InitialSync(self):
+  def test_Disk_10_InitialSync(self):
     test_Disk.disk = Disk({'login': 'stc.yd', 'auth': self.token, 'path': '~/yd', 'start': True,
                            'ro': False, 'ow': False, 'exclude': ['excluded_folder']})
     sleep(50)
     self.assertTrue(self.disk.status == 'idle')
 
-  def test_20_TestSequence(self):
+  def test_Disk_20_TestSequence(self):
     chdir(self.disk.path)
     call(['bash', 'test.sh'])
     sleep(30)
     self.assertTrue(self.disk.status == 'idle')
 
-  def test_25_FullSync(self):
+  def test_Disk_25_FullSync(self):
     self.disk.fullSync()
     sleep(30)
     self.assertTrue(self.disk.status == 'idle')
 
-  def test_30_Trush(self):
+  def test_Disk_30_Trush(self):
     self.disk.trash()
     sleep(30)
     self.assertTrue(self.disk.status == 'idle')
 
-  def test_40_GetStatus(self):
+  def test_Disk_40_GetStatus(self):
     res = self.disk.getStatus()
     sleep(1)
     self.assertTrue(type(res) == dict)
 
-  def test_45_list(self):
+  def test_Disk_45_list(self):
     l = 0
     for i in self.disk.cloud.getList(chunk=5):
       l += 1
     self.assertTrue(l > 0)
 
-  def test_50_DownloadNew(self):
+  def test_Disk_50_DownloadNew(self):
     self.disk.disconnect()
     remove(self.disk.cloud.h_data._filePath) # remove history
     self.disk.cloud.h_data.clear()           # reset it in memory
@@ -107,7 +107,7 @@ class test_Disk(unittest.TestCase):
     self.assertTrue(pathExists(path))
     self.assertTrue(self.disk.status == 'idle')
 
-  def test_60_Remove(self):
+  def test_Disk_60_Remove(self):
     self.disk.disconnect()
     rmtree(path_join(self.disk.path, 'd1'))
     self.disk.connect()
@@ -116,7 +116,7 @@ class test_Disk(unittest.TestCase):
     self.assertFalse(stat)
     self.assertTrue(self.disk.status == 'idle')
 
-  def test_70_UplodNew_offLine(self):
+  def test_Disk_70_UplodNew_offLine(self):
     self.disk.disconnect()
     path = path_join(self.disk.path, 'd1', 'd2')
     makedirs(path)
@@ -129,7 +129,7 @@ class test_Disk(unittest.TestCase):
     self.assertTrue(stat)
     self.assertTrue(self.disk.status == 'idle')
 
-  def test_72_UplodUpd_onLine(self):
+  def test_Disk_72_UplodUpd_onLine(self):
     with open('d1/d2/file', 'wt') as f:
       f.write('test file')
     sleep(30)
@@ -137,7 +137,7 @@ class test_Disk(unittest.TestCase):
     self.assertTrue(stat)
     self.assertTrue(self.disk.status == 'idle')
 
-  def test_75_UplodChanged_offLine(self):
+  def test_Disk_75_UplodChanged_offLine(self):
     self.disk.disconnect()
     r_path = 'd1/d2/file'
     path = path_join(self.disk.path, r_path)
@@ -152,7 +152,7 @@ class test_Disk(unittest.TestCase):
     self.assertTrue(stat)
     self.assertTrue(res['modified']> mt)
 
-  def test_77_DownloadUpd_offLine(self):
+  def test_Disk_77_DownloadUpd_offLine(self):
     self.disk.disconnect()
     r_path = 'd1/d2/file'
     path = path_join(self.disk.path, r_path)
@@ -167,7 +167,7 @@ class test_Disk(unittest.TestCase):
     self.assertTrue(self.disk.cloud.h_data.get(path) > mt)
 
   '''
-  def test_80_Conflict(self):
+  def test_Disk_80_Conflict(self):
     self.disk.disconnect()
     r_path = 'd1/d2/file'
     path = path_join(self.disk.path, r_path)
@@ -189,10 +189,10 @@ class test_Disk(unittest.TestCase):
   '''
 
 
-  def test_90_Exit(self):
+  def test_Disk_98_Exit(self):
     self.assertEqual(self.disk.exit(), 0)
 
-  def test_99_clean(self):
+  def test_Disk_99_Сlean(self):
     rmtree(self.disk.path, ignore_errors=True)
 
 if __name__ == '__main__':
