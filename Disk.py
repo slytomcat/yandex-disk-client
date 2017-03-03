@@ -34,7 +34,6 @@ from time import time
 from logging import debug, info, warning, error, critical
 
 
-
 def in_paths(path, paths):
   '''Check that path is within one of paths
      Examples:
@@ -60,6 +59,11 @@ class Cloud(_Cloud):    # redefined cloud class for implement application level 
     self.work_dir = work_dir
     super().__init__(token)
 
+  def _reformat(self, item):
+    item['path'] = path_join(self.path, item['path'])
+    item['modified'] = int(datetime.strptime(item['modified'].replace(':', ''),
+                                             '%Y-%m-%dT%H%M%S%z').timestamp())
+
   def getList(self, chunk=None):  # getList is a generator that yields individual file
     offset = 0
     chunk = chunk or 30
@@ -69,9 +73,7 @@ class Cloud(_Cloud):    # redefined cloud class for implement application level 
         l = len(res)
         if l:
           for i in res:
-            i['path'] = path_join(self.path, i['path'])
-            i['modified'] = int(datetime.strptime(i['modified'].replace(':', ''),
-                                                  '%Y-%m-%dT%H%M%S%z').timestamp())
+            self._reformat(i)
             yield True, i
           if l < chunk:
             break
@@ -85,9 +87,7 @@ class Cloud(_Cloud):    # redefined cloud class for implement application level 
   def getResource(self, path):
     status, result = super().getResource(path)
     if status:
-      result['path'] = path_join(self.path, result['path'])
-      result['modified'] = int(datetime.strptime(result['modified'].replace(':', ''),
-                                                 '%Y-%m-%dT%H%M%S%z').timestamp())
+      self._reformat(result)
     return status, result
 
   def download(self, path):    # download via temporary file to make it in transaction manner
@@ -98,7 +98,7 @@ class Cloud(_Cloud):    # redefined cloud class for implement application level 
     if status:
       try:
         fileMove(temp, path)
-        self.h_data[path] = file_info(path).st_mtime
+        self.h_data[path] = int(file_info(path).st_mtime)
       except:
         status = False
       self.setUGM(path, *self.getUGM(r_path))
@@ -129,7 +129,7 @@ class Cloud(_Cloud):    # redefined cloud class for implement application level 
     status, res = super().upload(path, r_path)
     if status and pathExists(path):
       fst = file_info(path)
-      self.h_data[path] = fst.st_mtime
+      self.h_data[path] = int(fst.st_mtime)
       self._storeUGM(r_path, fst)
     return status, res
 
@@ -673,86 +673,3 @@ class Disk(object):
     self._setStatus('exit')
     self.SU.join()
     return 0
-
-''' Interactive execution code
-'''
-
-if __name__ == '__main__':
-  from sys import exit as sysExit
-  from gettext import translation
-  from signal import signal, SIGTERM, SIGINT
-  from logging import basicConfig as logConfig
-  logConfig(level=30, format='%(asctime)s %(levelname)s %(message)s')
-
-  def appExit(msg=None):
-    for disk in disks:
-      disk.exit()
-    sysExit(msg)
-
-  appName = 'yd-client'
-  # read or make new configuration file
-  confHome = expanduser(path_join('~', '.config', appName))
-  config = Config(path_join(confHome, 'client.conf'))
-  if not config.loaded:
-    makedirs(confHome, exist_ok=True)
-    config.changed = True
-  config.setdefault('type', 'std')
-  config.setdefault('disks', {})
-  if config.changed:
-    config.save()
-  # Setup localization
-  translation(appName, '/usr/share/locale', fallback=True).install()
-
-  disks = []
-  while True:
-    for user in config['disks'].values():
-      disks.append(Disk(user))
-    if disks:
-      break
-    else:
-      from OAuth import getToken, getLogin
-      print(_('No accounts configured'))
-      if input(_('Do you want to configure new account (Y/n):')).lower() not in ('', 'y'):
-        appExit(_('Exit.'))
-      else:
-        path = ''
-        while not pathExists(path):
-          path = input(_('Enter the path to local folder '
-                         'which will by synchronized with cloud disk. (Default: ~/YandexDisk):'))
-          if not path:
-            path = '~/YandexDisk'
-          path = expanduser(path)
-          if not pathExists(path):
-            try:
-              makedirs(path_join(path, dataFolder), exist_ok=True)
-            except:
-              print('Error: Incorrect folder path specified (no access or wrong path name).')
-        token = getToken('389b4420fc6e4f509cda3b533ca0f3fd', '5145f7a99e7943c28659d769752f6dae')
-        login = getLogin(token)
-        config['disks'][login] = {'login': login, 'auth': token, 'path': path, 'start': True,
-                                  'ro': False, 'ow': False, 'exclude': []}
-        config.save()
-
-  # main thread final activity
-
-  signal(SIGTERM, lambda _signo, _stack_frame: appExit('Killed'))
-  signal(SIGINT, lambda _signo, _stack_frame: appExit('CTRL-C Pressed'))
-
-  msg = ('Commands:\n с - connect\n d - disconnect\n s - get status\n t - clear trash\n'
-         ' f - full sync\n e - exit\n ')
-  print(msg, 'connected:', disks[0].connected())
-  while True:
-    cmd = input()
-    if cmd == 'd':
-      disks[0].disconnect()
-    elif cmd == 'c':
-      disks[0].connect()
-    elif cmd == 't':
-      disks[0].trash()
-    elif cmd == 's':
-      print(disks[0].getStatus())
-    elif cmd == 'f':
-      disks[0].fullSync()
-    elif cmd == 'e':
-      appExit()
-    print(msg, 'connected:', disks[0].connected())
