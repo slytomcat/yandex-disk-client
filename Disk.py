@@ -24,7 +24,7 @@ from pyinotify import ProcessEvent, WatchManager, Notifier, ThreadedNotifier, Ex
 from threading import Thread, Event, enumerate
 from queue import Queue, Empty
 from PoolExecutor import ThreadPoolExecutor
-from Cloud import Cloud as _Cloud
+from CloudDisk import Cloud
 from jconfig import Config
 from hashlib import sha256
 from tempfile import NamedTemporaryFile as tempFile
@@ -44,126 +44,7 @@ def in_paths(path, paths):
       return True         # yes if p is a left part of checked path
   return False
 
-class Cloud(_Cloud):    # redefined cloud class for implement application level logic
-  ''' - all paths in parameters are absolute paths only
-      - download/upload have only 1 parameter - absolute path of file
-      - getList converted to generator that yields individual file
-      - download is performed through the temporary file
-      - upload stores uid, gid, mode of file in custom_properties
-      - download restores uid, gid, mode from custom_properties of file
-      - history data updates according to the success operations
-  '''
-  def __init__(self, token, work_dir, path):
-    self.h_data = Config(path_join(work_dir, 'hist.data'))  # History data {path: lastModifiedDateTime}
-    self.path = path
-    self.work_dir = work_dir
-    super().__init__(token)
-
-  def _reformat(self, item):
-    item['path'] = path_join(self.path, item['path'])
-    item['modified'] = int(datetime.strptime(item['modified'].replace(':', ''),
-                                             '%Y-%m-%dT%H%M%S%z').timestamp())
-
-  def getList(self, chunk=None):  # getList is a generator that yields individual file
-    offset = 0
-    chunk = chunk or 30
-    while True:
-      status, res = super().getList(chunk, offset)
-      if status:
-        l = len(res)
-        if l:
-          for i in res:
-            self._reformat(i)
-            yield True, i
-          if l < chunk:
-            break
-          else:
-            offset += chunk
-        else:
-          break
-      else:
-        yield status, res
-
-  def getResource(self, path):
-    status, result = super().getResource(path)
-    if status:
-      self._reformat(result)
-    return status, result
-
-  def download(self, path):    # download via temporary file to make it in transaction manner
-    with tempFile(suffix='.yandex-disk-client', delete=False, dir=self.work_dir) as f:
-      temp = f.name
-    r_path = relpath(path, start=self.path)
-    status, res = super().download(r_path, temp)
-    if status:
-      try:
-        fileMove(temp, path)
-        self.h_data[path] = int(file_info(path).st_mtime)
-      except:
-        status = False
-      self.setUGM(path, *self.getUGM(r_path))
-    return status, res
-
-  def getUGM(self, r_path):
-    st, f_res = super().getResource(r_path)
-    if st:
-      props = f_res.get("custom_properties")
-      if props is not None:
-        return props.get("uid"), props.get("gid"), props.get("mode")
-    return None, None, None
-
-  def setUGM(self, path, uid, gid, mode):
-    if uid is not None and gid is not None:
-      chown(path, uid, gid)
-    if mode is not None:
-      chmod(path, mode)
-
-  def _storeUGM(self, r_path, fst):
-    return super().setProps(r_path, uid=fst.st_uid, gid=fst.st_gid, mode=fst.st_mode)
-
-  def storeAttrs(self, path):
-    return self._storeUGM(relpath(path, start=self.path), file_info(path))
-
-  def upload(self, path):
-    r_path = relpath(path, start=self.path)
-    status, res = super().upload(path, r_path)
-    if status and pathExists(path):
-      fst = file_info(path)
-      self.h_data[path] = int(fst.st_mtime)
-      self._storeUGM(r_path, fst)
-    return status, res
-
-  def delete(self, path):
-    status, res = super().delete(relpath(path, start=self.path))
-    if status:
-      # remove all subdirectories and files in the path if path is a directory or
-      # remove just the path if it is a file
-      to_remove = [p for p in iter(self.h_data) if p.startswith(path)]
-      for p in to_remove:
-        self.h_data.pop(p, None)
-    return status, res
-
-  def move(self, pathfrom, pathto):
-    pathto = relpath(pathto, start=self.path)
-    pathfrom = relpath(pathfrom, start=self.path)
-    status, res = super().move(pathfrom, pathto)
-    if status:
-      # update history date too
-      p = self.h_data.pop(pathfrom, None)
-      if p is not None:
-        self.h_data[pathto] = p
-      else:
-        if pathExists(pathto):
-          self.h_data[pathto] = int(file_info(pathto).st_mtime)
-    return status, res
-
-  def mkDir(self, path):
-    status, res = super().mkDir(relpath(path, start=self.path))
-    if status:
-      self.h_data[path] = True
-    return status, res
-
-class Disk(object):
+class Disk(Cloud):
   '''High-level Yandex.disk client interface.
      It can have following statuses (self.status updates by thread StatusUpdater):
       - fault - when disk can't access local folder (disk in this state is not operational)
@@ -176,10 +57,10 @@ class Disk(object):
   '''
   def __init__(self, user):
     self.user = user  # dictionary with user configuration
-    self.path = expanduser(self.user['path'])
+    path = expanduser(self.user['path'])
     dataFolder = '.yandex-disk-client'
-    dataFolderPath = path_join(self.path, dataFolder)
-    self.shutdown = False   # signal for utility threads to exit
+    dataFolderPath = path_join(path, dataFolder)
+    super().__init__(self.user['auth'], path, dataFolderPath)
     self.prevStatus = 'start'
     self.status = 'none'
     self.errorReason = ''
@@ -194,11 +75,11 @@ class Disk(object):
         utime(dataFolderPath)
       except:
         self.status = 'fault'
+    self.shutdown = False   # signal for utility threads to exit
     if self.status == 'fault':
       self.errorReason = "Can't access the local folder %s" % self.path
       critical(self.errorReason)
     else:
-      self.cloud = Cloud(self.user['auth'], dataFolderPath, self.path)
       self.executor = ThreadPoolExecutor()
       self.downloads = set()  # set of currently downloading files
       # event handler thread
@@ -336,17 +217,6 @@ class Disk(object):
         print(self.cloudStatus['last'])
       elif e == 'prop':
         print(' '.join(': '.join((t, str(self.cloudStatus[t]))) for t in ['total', 'used', 'trash']))
-
-  TSK = {'mkdir': self.cloud.mkDir,
-         'up'   : self.cloud.upload,
-         'down' : self.cloud.download,
-         'del'  : self.cloud.delete,
-         'move' : self.cloud.move,
-         'fulls': self.disk.fullSync,
-         'reccr': self.disk.reqCreate,
-         'attrs': self.cloud.storeAttrs,
-         'trash': self.cloud.trash
-        }
 
   def _submit(self, task, *args):
 

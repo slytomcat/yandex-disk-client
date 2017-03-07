@@ -152,7 +152,7 @@ class Cloud(object):
               f.write(chunk)
         except OSError as e:
           # prepare error description for failed file/socket operation
-          result = {'code': 999, 'error': 'OSError', 'path': lpath,
+          result = {'code': -1, 'error': 'OSError', 'path': lpath,
                     'errno': e.errno, 'description': e.strerror}
         if r.status_code == 200:
           return True, (cmd, *args)
