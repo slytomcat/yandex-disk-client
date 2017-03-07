@@ -52,21 +52,19 @@ class Cloud(_Cloud):
     self.path = path
     self.work_dir = work_dir
     super().__init__(token)
+    self.FUNC = { 'list' : self._getList,
+                  'res'  : self._getResource,
+                  'mkdir': self._mkDir,
+                  'del'  : self._delete,
+                  'move' : self._move,
+                  'down' : self._download,
+                  'up'   : self._upload,
+                  'getm' : self._getMode,
+                  'setm' : self._setMode }
 
   def task(self, cmd, *args, **kwargs):
-    func = {'list' : self._getList,
-            'res'  : self._getResult,
-            'mkdir': self._mkDir,
-            'del'  : self._delete,
-            'move' : self._move,
-            'down' : self._download,
-            'up'   : self._upload,
-            'getm' : self._getMode,
-            'setm' : self._setMode}.get(cmd)
-    if func is None:
-      return super().task(cmd, *args, **kwargs)
-    else:
-      return func(cmd, *args, **kwargs)
+    func = self.FUNC.get(cmd)
+    return super().task(cmd, *args, **kwargs) if func is None else func(cmd, *args, **kwargs)
 
   def _reformat(self, item):
     item['path'] = path_join(self.path, item['path'])
@@ -77,7 +75,7 @@ class Cloud(_Cloud):
     offset = 0
     chunk = chunk or 30
     while True:
-      status, result = super().task(cmd, path, chunk, offset)
+      status, result = super().task(cmd, chunk, offset)
       if status:
         l = len(result)
         if l:
@@ -98,17 +96,24 @@ class Cloud(_Cloud):
     return status, result
 
   def _getMode(self, cmd, path):
-    st, f_res = self._getResource('res', path)
+    r_path = relpath(path, start=self.path)
+    st, f_res = super().task('res', r_path)
     if st:
       props = f_res.get("custom_properties")
       if props is not None:
-        return props.get("mode")
-    return None
+        mode = props.get("mode")
+        if mode is not None:
+          chmod(path, mode)
+        return True, ('getm', r_path)
+    return False, ('getm', r_path, dict())
 
   def _setMode(self, cmd, path):
-    return self._r_setMode('prop', relpath(path, start=self.path), file_info(path).st_mode)
+    st, res = self._r_setMode(relpath(path, start=self.path), file_info(path).st_mode)
+    if st:
+      res = ('setm', res[1])
+    return st, res
 
-  def _r_setMode(self, cmd, r_path, mode):
+  def _r_setMode(self, r_path, mode):
     return super().task('prop', r_path, mode=mode)
 
   def _download(self, cmd, path):    # download via temporary file to make it in transaction manner
@@ -120,9 +125,11 @@ class Cloud(_Cloud):
       try:
         fileMove(temp, path)
         self.h_data[path] = int(file_info(path).st_mtime)
-        chmod(path, self._getMode(path))
-      except:
+        self._getMode('', path)
+      except OSError as e:
         status = False
+        res = {'code': -1, 'error': 'OSError', 'path': path,
+               'errno': e.errno, 'description': e.strerror}
     return status, res
 
   def _upload(self, cmd, path):
