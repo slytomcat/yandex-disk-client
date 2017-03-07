@@ -27,205 +27,165 @@ class Cloud(object):
     # make headers for requests that require authorization
     self._headers = {'Accept': 'application/json', 'Authorization': token}
 
-  CMD = {'info':  ((requests.get,
-                    'https://cloud-api.yandex.net/v1/disk'
-                    '?fields=total_space%2Ctrash_size%2Cused_space%2Crevision'),
-                   200),
-         'last':  ((requests.get,
-                    'https://cloud-api.yandex.net/v1/disk/resources/last-uploaded?limit=10'
-                    '&fields=path'),
-                   200),
-         'res':   ((requests.get,
-                    'https://cloud-api.yandex.net/v1/disk/resources?path={}'
-                    '&fields=size%2Cmodified%2Csha256%2Cpath%2Ctype%2Ccustom_properties'),
-                   200),
-         'prop':  ((requests.patch,
-                    'https://cloud-api.yandex.net/v1/disk/resources/?path={}'
-                    '&fields=name%2Ccustom_properties'),
-                   200),
-         'list':  ((requests.get,
-                    'https://cloud-api.yandex.net/v1/disk/resources/files?limit={}&offset={}'),
-                   200),
-         'mkdir': ((requests.put,
-                    'https://cloud-api.yandex.net/v1/disk/resources?path={}'),
-                   201),
-         'del':   ((requests.delete,
-                    'https://cloud-api.yandex.net/v1/disk/resources?path={}&permanently={}'),
-                   204),
-         'trash': ((requests.delete,
-                    'https://cloud-api.yandex.net/v1/disk/trash/resources'),
-                   204),
-         'move':  ((requests.post,
-                    'https://cloud-api.yandex.net/v1/disk/resources/move?from={}&path={}'),
-                   201),
-         'copy':  ((requests.post,
-                    'https://cloud-api.yandex.net/v1/disk/resources/copy?from={}&path={}'),
-                   201),
-         'up':    ((requests.get,
-                    'https://cloud-api.yandex.net/v1/disk/resources/upload?path={}&overwrite={}'),
-                   200),
-         'down':  ((requests.get,
-                    'https://cloud-api.yandex.net/v1/disk/resources/download?path={}'),
-                   200)}
+  BASEURL = 'https://cloud-api.yandex.net/v1/disk'
+  # cmd : (method, url, success ret_code)
+  CMD = {'info':  (requests.get, BASEURL + '?fields=total_space%2Ctrash_size%2Cused_space', 200),
+         'last':  (requests.get, BASEURL + '/resources/last-uploaded?limit=10&fields=path', 200),
+         'res':   (requests.get, BASEURL + '/resources?path={}'
+                   '&fields=size%2Cmodified%2Csha256%2Cpath%2Ctype%2Ccustom_properties', 200),
+         'list':  (requests.get, BASEURL + '/resources/files?limit={}&offset={}', 200),
+         'prop':  (requests.patch, BASEURL + '/resources/?path={}'
+                   '&fields=path%2Ccustom_properties', 200),
+         'mkdir': (requests.put, BASEURL + '/resources?path={}', 201, ),
+         'del':   (requests.delete, BASEURL + '/resources?path={}', 204),
+         'trash': (requests.delete, BASEURL + '/trash/resources', 204),
+         'move':  (requests.post, BASEURL + '/resources/move?path={}&from={}', 201),
+         'copy':  (requests.post, BASEURL + '/resources/copy?path={}&from={}', 201),
+         'up':    (requests.get, BASEURL + '/resources/upload?path={}', 200),
+         'down':  (requests.get, BASEURL + '/resources/download?path={}', 200)}
 
-  def _request(self, req, *args, **kwargs):
-    ''' Perform the request with expanded URL via specified method using predefined headers
-        Named arguments are passed to the request.
-    '''
-    method, url = req
+  def _request(self, cmd, *args, **kwargs):
+    ''' format URL, perform request and handle asynchronous operations'''
+    method, url, code = self.CMD[cmd]
     r = method(url.format(*args), **kwargs, headers=self._headers)
-    return r.status_code, r.json() if r.text else ''
-
-  def _cmd_request(self, cmd, *args, **kwargs):
-    ''' Perform the request by command name (as defined in CMD class variable)
-        It also handles asynchronious operations
-    '''
-    req, code = self.CMD[cmd]
-    status, result = self._request(req, *args, **kwargs)
-    if status == 202:  # asyncronious operation
+    status_code = r.status_code
+    result = r.json() if r.text else ''
+    if status_code == 202:  # it is asynchronous operation
       url = result['href']
       while True:
         sleep(0.777)  # reasonable pause between continuous requests
-        st, res = self._request((requests.get, url))
+        r = requests.get(url, headers=self._headers)
+        st = r.status_code
+        res = r.json() if r.text else ''
         if st == 200:
           if res.get("status") == "success":
-            status = code
+            status_code = code
             break
           if res.get("status") == "failed":
-            status = 404
+            status_code = 404
             result = {'error': 'FailedAsyncOperationError'}
             break
         else:
-          status = st
+          status_code = st
           result = res
           break
-    ok = status == code
+    ok = status_code == code
     if not ok:
-      result['code'] = status  # add status code into error description
+      result['code'] = status_code  # add status code into error description
     return ok, result
 
-  def _simple_cmd(self, cmd, *args, **kwargs):
-    ''' Command with no arguments and no result reformatting. It handles errors '''
-    status, result = self._cmd_request(cmd, *args, **kwargs)
-    if status:
-      return True, result
-    else:
-      error('%s(%s) returned %s' % (cmd, ', '.join(str(i) for i in args), str(result)))
-      return False, (cmd, *args, result)
-
-  getDiskInfo = lambda self: self._simple_cmd('info')
-  ''' Receives cloud disk status information'''
-
-  trash = lambda self: self._simple_cmd('trash')
-  ''' Makes trush empty '''
-
-  def getLast(self):
-    ''' Receives 10 last synchronized items'''
-    cmd = 'last'
-    status, result = self._simple_cmd(cmd)
-    # Reformat the result
-    if status:
-      result = [item['path'].replace('disk:/', '') for item in result['items']]
-    return status, result
-
-  def getResource(self, path):
-    ''' Returns folder/file properties'''
-    cmd = 'res'
-    status, result = self._simple_cmd(cmd, path)
-    # Reformat the result
-    if status:
-      result['path'] = result['path'].replace('disk:/', '')
-    return status, result
-
-  def getList(self, chunk=20, offset=0):
-    ''' Returns sorted list of cloud files by parts (chunk items starting from offset)
+  def task(self, cmd, *args, **kwargs):
     '''
-    cmd = 'list'
-    status, result = self._simple_cmd(cmd, str(chunk), str(offset))
-    # Reformat the result
-    if status:
-      items = result['items']
-      result = []
-      for i in items:
-        result.append({key: i[key] if key != 'path' else i[key].replace('disk:/', '')
-                      for key in ['path', 'type', 'modified', 'sha256', 'size'] })
-        result[-1]['custom_properties'] = i.get('custom_properties')
-    return status, result
+      Universal disk operation. It can be called with following parameters:
+      - 'info'                    : to retrieve the common disk information,
+      - 'last'                    : to retrieve 10 last updeted files,
+      - 'res', path               : to retrieve file|folder properties,
+      - 'list', <chunk>, <offset> : returns <chunk> files starting from <ofset> from full file list,
+      - 'prop', path, pr=val,...  : to set custom properties for file/folder,
+      - 'mkdir', path             : to create a new folder,
+      - 'del', path               : to delete file/folder,
+      - 'trash'                   : to clean the trash,
+      - 'move', pathto, pathfrom  : to move file/foldet from pathfrom to pathto,
+      - 'copy', pathto, pathfrom  : to move file/foldet from pathfrom to pathto,
+      - 'up', path, localpath     : to upload file from localpath of local disk to path on cloud
+      - 'down', path, localpath   : to download file from path on cloud to localpath on local disk
 
-  def setProps(self, path, **props):
-    ''' Sets customer propertie to file/folder '''
-    cmd = 'prop'
-    status, result = self._simple_cmd('prop', path, data=dumps({"custom_properties": props}))
-    # reformat the result
-    if status:
-      result = (cmd, path)
-    return status, result
+      It always return the tuple (status, result).
+      When status True then result is the result of request. It varies for different operations:
+      - dict with keys: total_space, trash_size, used_space                    : for 'info',
+      - list of 10 paths                                                       : for 'last',
+      - dict with keys: path, type, size, sha256, modified, custom_properties  : for 'res',
+      - list of dicts like dict forres                                         : for 'list',
+      - tuple (cmd, *args)                                                     : for all rest.
 
-  def mkDir(self, path):
-    ''' Makes new cloud folder '''
-    cmd = 'mkdir'
-    status, result = self._simple_cmd(cmd, path)
-    # special error handling
-    if not status and result[-1]['error'] == 'DiskPathPointsToExistentDirectoryError':
+      If status False then it returns tuple(cmd, *args, error_dict), where error_dict contain
+      at least 'code': <request status code>, 'error': <Error_identity_string>
+    '''
+
+    # handle input parameters
+    if cmd in ('up', 'down'):
+      # remove local path from args for upload and download operations
+      lpath = args[1]
+      args = (args[0],)
+    elif cmd == 'prop':
+      kwargs = {'data': dumps({"custom_properties": kwargs})}
+
+    # perform request
+    status, result = self._request(cmd, *args, **kwargs)
+
+    # handle (pass) some errors
+    if not status and cmd == 'mkdir' and result['error'] == 'DiskPathPointsToExistentDirectoryError':
       status = True
-    # reformat the result
+
+    # handle successful results and return results for successfully handled
     if status:
-      result = (cmd, path)
-    return status, result
 
-  def delete(self, path, perm=False):
-    ''' Deletes file/folder from cloud disk'''
-    cmd = 'del'
-    status, result = self._simple_cmd(cmd, path, 'true' if perm else 'false')
-    # reformat the result
-    if status:
-      result = (cmd, path)
-    return status, result
+      # 'prop', 'mkdir', 'del', 'trash', 'move' and 'copy'
+      if cmd in {'prop', 'mkdir', 'del', 'trash', 'move', 'copy'}:
+        return status, (cmd, *args)
 
-  def _cpmv(self, cmd, pathfrom, pathto):
-    ''' Copy and move do everything similar except the command.
-    '''
-    status, result = self._cmd_request(cmd, pathfrom, pathto)
-    if status:
-      return True, (cmd, pathfrom, pathto)
-    else:
-      error('%s %s %s returned %s' % (cmd, pathfrom, pathto, str(result)))
-      return False, (cmd, pathfrom, pathto, result)
+      # Upload
+      elif cmd == 'up':
+        try:  # try to open and upload file
+          with open(lpath, 'rb') as f:
+            # make secondary request to transfer data
+            r = requests.put(result['href'], data = f)
 
-  move = lambda self, pathfrom, pathto: self._cpmv('move', pathfrom, pathto)
-  ''' Moves file/folder from one path to another '''
-
-  copy = lambda self, pathfrom, pathto: self._cpmv('copy', pathfrom, pathto)
-  ''' Makes copy of file/path from one path to another '''
-
-  def upload(self, lpath, path, ow=True):
-    cmd = 'up'
-    status, result = self._cmd_request(cmd, path, 'true' if ow else 'false')
-    if status:
-      try:
-        with open(lpath, 'rb') as f:
-          r = requests.put(result['href'], data = f)
+        except OSError as e:
+          # prepare error description for failed file/socket operation
+          result = {'error': 'OSError', 'path': lpath, 'errno': e.errno, 'description': e.strerror}
         if r.status_code in (201, 200):
-          return True, (cmd, path)
-      except FileNotFoundError:
-        return False, (cmd, path, {'error': 'FileNotFoundError', 'path': lpath})
-      result = r.json() if r.text else dict()
-      result['code'] = r.status_code
-    error('%s %s returned %s' % (cmd, path, str(result)))
-    return False, (cmd, path, result)
+          return True, (cmd, *args)
+        # prepare error description for secondary request
+        result = r.json() if r.text else dict()
+        result['code'] = r.status_code
+        # do not return here, handle error in section below
 
-  def download(self, path, lpath):
-    cmd = 'down'
-    status, result = self._cmd_request(cmd, path)
-    if status:
-      r = requests.get(result['href'], stream=True)
-      ### need try except for open and write
-      with open(lpath, 'wb') as f:
-        for chunk in r.iter_content(2048):
-          f.write(chunk)
-      if r.status_code == 200:
-        return True, (cmd, path)
-      result = r.json() if r.text else dict()
-      result['code'] = r.status_code
-    error('%s %s returned %s' % (cmd, path, str(result)))
-    return False, (cmd, path, result)
+      # Download
+      elif cmd == 'down':
+        # make secondary request to transfer data
+        r = requests.get(result['href'], stream=True)
+        # try open and write to local file
+        try:
+          with open(lpath, 'wb') as f:
+            for chunk in r.iter_content(2048):
+              f.write(chunk)
+        except OSError as e:
+          # prepare error description for failed file/socket operation
+          result = {'code': 999, 'error': 'OSError', 'path': lpath,
+                    'errno': e.errno, 'description': e.strerror}
+        if r.status_code == 200:
+          return True, (cmd, *args)
+        # prepare error description for secondary request
+        status = r.status_code
+        result = r.json() if r.text else dict()
+        # do not return here, handle error in section below
+
+      # List
+      elif cmd == 'list':
+        items = result['items']
+        result = []
+        for i in items:
+          item = {key: i[key] for key in ['path', 'type', 'modified', 'sha256', 'size']}
+          item['path'] = item['path'][6:]  #.replace('disk:/', '')
+          item['custom_properties'] = item.get('custom_properties')
+          result.append(item)
+        return True, result
+
+      # Info
+      elif cmd in 'info':
+        return True, result
+
+      # Last 10
+      elif cmd == 'last':
+        return True, [item['path'][6:] for item in result['items']]  #.replace('disk:/', '')
+
+      # get file/path properties
+      elif cmd == 'res':
+        result['path'] = result['path'][6:]  #.replace('disk:/', '')
+        result['custom_properties'] = result.get('custom_properties')
+        return True, result
+
+    # Handle errors
+    error('%s(%s) returned %s' % (cmd, ', '.join(str(i) for i in args), str(result)))
+    return False, (cmd, *args, result)

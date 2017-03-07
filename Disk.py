@@ -337,7 +337,18 @@ class Disk(object):
       elif e == 'prop':
         print(' '.join(': '.join((t, str(self.cloudStatus[t]))) for t in ['total', 'used', 'trash']))
 
-  def _submit(self, task, args):
+  TSK = {'mkdir': self.cloud.mkDir,
+         'up'   : self.cloud.upload,
+         'down' : self.cloud.download,
+         'del'  : self.cloud.delete,
+         'move' : self.cloud.move,
+         'fulls': self.disk.fullSync,
+         'reccr': self.disk.reqCreate,
+         'attrs': self.cloud.storeAttrs,
+         'trash': self.cloud.trash
+        }
+
+  def _submit(self, task, *args):
 
     def taskCB(ft):
       res = ft.result()
@@ -356,7 +367,7 @@ class Disk(object):
         self.downloads = set()  # clear downloads as no more downloads required
         self._setStatus('idle')
 
-    ft = self.executor.submit(task, *args)
+    ft = self.executor.submit(TSK[task], *args)
     ft.add_done_callback(taskCB)
     if self.status != 'busy':
       self._setStatus('busy')
@@ -436,23 +447,23 @@ class Disk(object):
                   if l_t > c_t:  # older file is in cloud
                     self.downloads.add(path2)
                     self.cloud.move(path, path2)  # need to do before rest
-                    self._submit(self.cloud.download, (path2,))
-                    self._submit(self.cloud.upload, (path,))
+                    self._submit('down', path2)
+                    self._submit('up', path)
                   else:  # local file is older than file in cloud
                     self.downloads.add(path)
                     fileMove(path, path2)  # it will be captured as move from & move to !!!???
-                    self._submit(self.cloud.download, (path,))
-                    self._submit(self.cloud.upload, (path2,))
+                    self._submit('down', path)
+                    self._submit('up', path2)
                   continue
                 elif l_t > c_t:  # local time greater than the cloud time
                   # upload (as file exists the dir exists too - no need to create dir in cloud)
-                  self._submit(self.cloud.upload, (path,))
+                  self._submit('up', path)
                   ignore_path_down(path)  # add in ignore and history all folders by way to file
                   continue
                 else:  # download
                   # upload (as file exists the dir exists too - no need to create local dir)
                   self.downloads.add(path)  # remember in downloads to avod events on this path
-                  self._submit(self.cloud.download, (path,))
+                  self._submit('down', path)
                   ignore_path_down(path)  # add in ignore and history all folders by way to file
                   continue
           # The file is not exists
@@ -472,11 +483,11 @@ class Disk(object):
                 ### !!! all files in this folder mast be removed too, but we
                 ### can't walk as files/folders was deleted from local FS!
                 ### NEED history database to do delete where path.startwith(p) - it can't be done in dict
-              self._submit(self.cloud.delete, (p,))
+              self._submit('del', p)
               # add d to exceptions to avoid unnecessary checks for other files which are within p
               exclude.add(p)
             else:                   # only file was deleted
-              self._submit(self.cloud.delete, (path,))
+              self._submit('del', path)
               del self.cloud.h_data[path]  # remove history
           else:   # local file have to be downloaded from the cloud
             if i['type'] == 'file':
@@ -485,7 +496,7 @@ class Disk(object):
                 makedirs(p, exist_ok=True)
               ignore.add(p)
               self.downloads.add(path)            # store downloaded file in downloads to avoid upload
-              self._submit(self.cloud.download, (path,))
+              self._submit('down', path)
               ignore.add(path)
             #else:                                 # directory not exists  !!! newer run !!!
             #  self.downloads.add(ignore_path_down(path))  # store new dir in downloads to avoid upload
@@ -506,11 +517,30 @@ class Disk(object):
         for f in files:
           f = path_join(root, f)
           if f not in ignore:
-            self._submit(self.cloud.upload, (f,))
+            self._submit('up', f)
       return 'fullSync'
 
     if self.connected():
-      self._submit(_fullSync, (self,))
+      self._submit('fulls', self)
+
+  def _recCreate(self, path, exclude, submit):
+    ''' It recursively creates folders and files in cloud, starting from specified directory.
+        It itself executed in threadExecutor and submits files uploads to threadExecutor but
+        directories created by direct calls as it rather fast operation and directories need
+        to be created in advance (before uploading file to them).
+    '''
+    s, r = self.cloud.mkDir(path)
+    for root, dirs, files in walk(path):
+      if in_paths(root, exclude):
+        break
+      for d in dirs:
+        s, r = self.cloud.mkDir(path_join(root, d))
+        info('done in-line %s %s'%(str(s), str(r)))
+        ### !need to check success of folder creation! !need to decide what to do in case of error!
+      for f in files:
+        submit(self.cloud.upload, (path_join(root, f),))
+    return 'recCreate'
+
 
   def _eventHandler(self):      # Thread that handles iNotify watcher events
 
@@ -526,37 +556,19 @@ class Disk(object):
             # So we need to walk inside and upload all directories, subdirectories and files
             # that are within the moved directory.
             # Do this task within threadExecutor as it can rather many files inside.
-            self._submit(recCreate, (event.pathname, self.watch.exclude, self._submit))
+            self._submit('reccr', event.pathname)
           else:
-            self._submit(self.cloud.mkDir, (event.pathname,))
+            self._submit('mkdir', event.pathname)
       else:   # it is file
         # do not start upload for downloading file
         if event.pathname not in self.downloads:
-          self._submit(self.cloud.upload, (event.pathname,))
+          self._submit('up', event.pathname)
 
     def moved(event):  # handle standalone moved events
       if event.mask & IN_MOVED_TO:  # moved in = new
         new(event)
       else:  # moved out = deleted
-        self._submit(self.cloud.delete, (event.pathname,))
-
-    def recCreate(path, exclude, submit):
-      ''' It recursively creates folders and files in cloud, starting from specified directory.
-          It itself executed in threadExecutor and submits files uploads to threadExecutor but
-          directories created by direct calls as it rather fast operation and directories need
-          to be created in advance (before uploading file to them).
-      '''
-      s, r = self.cloud.mkDir(path)
-      for root, dirs, files in walk(path):
-        if in_paths(root, exclude):
-          break
-        for d in dirs:
-          s, r = self.cloud.mkDir(path_join(root, d))
-          info('done in-line %s %s'%(str(s), str(r)))
-          ### !need to check success of folder creation! !need to decide what to do in case of error!
-        for f in files:
-          submit(self.cloud.upload, (path_join(root, f),))
-      return 'recCreate'
+        self._submit('del', event.pathname)
 
     while not self.shutdown:
       event = self.watch.get()
@@ -574,7 +586,7 @@ class Disk(object):
               cookie = ''
             if event.cookie == cookie:
               # great! we've found the move operation (file moved within the synced path)
-              self._submit(self.cloud.move, (event.pathname, event2.pathname))
+              self._submit('move', event.pathname, event2.pathname)
               break  # as ve alredy treated two MOVED events
             else:
               moved(event)  # treat first MOVED event as standalone
@@ -586,15 +598,15 @@ class Disk(object):
         if event.mask & IN_CREATE:
           new(event)
         elif event.mask & IN_DELETE:
-          self._submit(self.cloud.delete, (event.pathname,))
+          self._submit('del', event.pathname)
         elif event.mask & IN_MODIFY:
           # do not start upload for downloading file
           if event.pathname not in self.downloads:
-            self._submit(self.cloud.upload, (event.pathname,))
+            self._submit('up', event.pathname)
         elif event.mask & IN_ATTRIB:
           # do not update cloud properties for downloading file
           if event.pathname not in self.downloads:
-            self._submit(self.cloud.storeAttrs, (event.pathname,))
+            self._submit('attrs', event.pathname)
 
   class _PathWatcher(Queue):    # iNotify watcher for directory
     '''
@@ -659,7 +671,7 @@ class Disk(object):
 
   def trash(self):
     if self.connected():
-      self._submit(self.cloud.trash, ())
+      self._submit('trash')
 
   def exit(self):
     if self.connected():

@@ -20,6 +20,7 @@
 
 from Disk import Disk
 from jconfig import Config
+from OAuth import getToken, getLogin
 from sys import exit as sysExit
 from gettext import translation
 from signal import signal, SIGTERM, SIGINT
@@ -36,7 +37,7 @@ def appExit(msg=None):
 '''
 
 if __name__ == '__main__':
-  logConfig(level=30, format='%(asctime)s %(levelname)s %(message)s')
+  logConfig(level=10, format='%(asctime)s %(levelname)s %(message)s')
   appName = 'yd-client'
   # read or make new configuration file
   confHome = expanduser(path_join('~', '.config', appName))
