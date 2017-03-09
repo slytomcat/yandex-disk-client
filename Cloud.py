@@ -41,7 +41,7 @@ class Cloud(object):
          'trash': (requests.delete, BASEURL + '/trash/resources', 204),
          'move':  (requests.post, BASEURL + '/resources/move?path={}&from={}', 201),
          'copy':  (requests.post, BASEURL + '/resources/copy?path={}&from={}', 201),
-         'up':    (requests.get, BASEURL + '/resources/upload?path={}', 200),
+         'up':    (requests.get, BASEURL + '/resources/upload?path={}&overwrite=true', 200),
          'down':  (requests.get, BASEURL + '/resources/download?path={}', 200)}
 
   def _request(self, cmd, *args, **kwargs):

@@ -60,7 +60,6 @@ class Disk(Cloud):
     path = expanduser(self.user['path'])
     dataFolder = '.yandex-disk-client'
     dataFolderPath = path_join(path, dataFolder)
-    super().__init__(self.user['auth'], path, dataFolderPath)
     self.prevStatus = 'start'
     self.status = 'none'
     self.errorReason = ''
@@ -77,9 +76,10 @@ class Disk(Cloud):
         self.status = 'fault'
     self.shutdown = False   # signal for utility threads to exit
     if self.status == 'fault':
-      self.errorReason = "Can't access the local folder %s" % self.path
+      self.errorReason = "Can't access the local folder %s" % dataFolderPath
       critical(self.errorReason)
     else:
+      super().__init__(self.user['auth'], path, dataFolderPath)
       self.executor = ThreadPoolExecutor()
       self.downloads = set()  # set of currently downloading files
       # event handler thread
@@ -111,6 +111,7 @@ class Disk(Cloud):
     else:
       # set fault status
       self.statusQueue.put((self.status, self.prevStatus))
+
   def connected(self):
     return self.status in {'idle','busy','error'}
 
@@ -123,7 +124,7 @@ class Disk(Cloud):
   def updateInfo(self):
     # get disk statistics if connected
     if self.connected():
-      stat, res = self.cloud.getDiskInfo()
+      stat, res = self.task('info')
     else:
       stat = False
     if stat:
@@ -144,7 +145,7 @@ class Disk(Cloud):
       self.cloudStatus['trash'] = trash
     # get last synchronized list
     if self.connected():
-      stat, res = self.cloud.getLast()
+      stat, res = self.task('last')
     else:
       stat = False
     last = res if stat else []
@@ -160,7 +161,7 @@ class Disk(Cloud):
       if status == 'busy':
         stime = time()
       if status == 'idle':
-        self.cloud.h_data.save()
+        self.h_data.save()
         if self.error:
           info('Some errors was detected during sync --> fillSync required')
           self.error = False
@@ -218,7 +219,7 @@ class Disk(Cloud):
       elif e == 'prop':
         print(' '.join(': '.join((t, str(self.cloudStatus[t]))) for t in ['total', 'used', 'trash']))
 
-  def _submit(self, task, *args):
+  def _submit(self, task, *args, **kwargs):
 
     def taskCB(ft):
       res = ft.result()
@@ -237,7 +238,10 @@ class Disk(Cloud):
         self.downloads = set()  # clear downloads as no more downloads required
         self._setStatus('idle')
 
-    ft = self.executor.submit(TSK[task], *args)
+    if isinstance(task, str):
+      ft = self.executor.submit(self.task, task, *args, **kwargs)
+    else:
+      ft = self.executor.submit(task, *args, **kwargs)
     ft.add_done_callback(taskCB)
     if self.status != 'busy':
       self._setStatus('busy')
@@ -254,8 +258,8 @@ class Disk(Cloud):
         while path not in ignore and path != self.path:
           ret.add(path)
           if pathExists(path):
-            self.cloud.h_data[path] = int(file_info(path).st_mtime)
-          path, _ = path_split(path)
+            self.h_data[path] = int(file_info(path).st_mtime)
+          path = path_split(path)[0]
         ignore |= ret
         return ret
       ignore = set()  # set of files that shouldn't be synced or already in sync
@@ -264,10 +268,10 @@ class Disk(Cloud):
       # ({cloud} & {local}) and hashes are equal = ignore
       # ({cloud} & {local}) and hashes not equal -> decide conflict/upload/download depending on
       # the update time of files and time stored in the history
-      for status, i in self.cloud.getList(chunk=40):
+      for status, i in self.task('list', 40):
         if status:
           path = i['path']         # full file path !NOTE! getList doesn't return empty folders
-          p, _ = path_split(path)  # containing folder
+          p = path_split(path)[0]  # containing folder
           if in_paths(p, exclude):
             continue
           if pathExists(path):
@@ -291,7 +295,7 @@ class Disk(Cloud):
                 hh = ''
               c_t = i['modified']                       # cloud file modified date-time
               l_t = int(file_info(path).st_mtime)       # local file modified date-time
-              h_t = self.cloud.h_data.get(path, l_t)    # history file modified date-time
+              h_t = self.h_data.get(path, l_t)    # history file modified date-time
               if hh == i['sha256']:
                 # Cloud and local hashes are equal
                 # here we may check UGM and if they are different we have to decide:
@@ -316,7 +320,7 @@ class Disk(Cloud):
                   ignore.add(path)
                   if l_t > c_t:  # older file is in cloud
                     self.downloads.add(path2)
-                    self.cloud.move(path, path2)  # need to do before rest
+                    self.task('move', path2, path)  # need to do before rest
                     self._submit('down', path2)
                     self._submit('up', path)
                   else:  # local file is older than file in cloud
@@ -340,16 +344,16 @@ class Disk(Cloud):
           # it means that it has to be downloaded or.... deleted from the cloud when local file
           # was deleted and this deletion was not cached by active client (client was not
           # connected to cloud or was not running at the moment of deletion).
-          if self.cloud.h_data.get(path, False):  # do we have history data for this path?
+          if self.h_data.get(path, False):  # do we have history data for this path?
             # as we have history info for path but local path doesn't exists then we have to
             # delete it from cloud
             if not pathExists(p):   # containing directory is also removed?
               while True:           # go down to the shortest removed directory
-                p_, _ = path_split(p)
+                p_ = path_split(p)[0]
                 if pathExists(p_):
                   break
                 p = p_
-                self.cloud.h_data.pop(p)  # remove history
+                self.h_data.pop(p)  # remove history
                 ### !!! all files in this folder mast be removed too, but we
                 ### can't walk as files/folders was deleted from local FS!
                 ### NEED history database to do delete where path.startwith(p) - it can't be done in dict
@@ -358,7 +362,7 @@ class Disk(Cloud):
               exclude.add(p)
             else:                   # only file was deleted
               self._submit('del', path)
-              del self.cloud.h_data[path]  # remove history
+              del self.h_data[path]  # remove history
           else:   # local file have to be downloaded from the cloud
             if i['type'] == 'file':
               if not pathExists(p):
@@ -381,7 +385,7 @@ class Disk(Cloud):
           if d not in ignore | exclude:
             # directory have to be created before start of uploading a file in it
             # do it in-line as it rather fast operation
-            s, r = self.cloud.mkDir(d)
+            s, r = self.task('mkdir', d)
             info('done in-line %s %s'%(str(s), str(r)))
             ### !need to check success of folder creation! !need to decide what to do in case of error!
         for f in files:
@@ -391,28 +395,27 @@ class Disk(Cloud):
       return 'fullSync'
 
     if self.connected():
-      self._submit('fulls', self)
-
-  def _recCreate(self, path, exclude, submit):
-    ''' It recursively creates folders and files in cloud, starting from specified directory.
-        It itself executed in threadExecutor and submits files uploads to threadExecutor but
-        directories created by direct calls as it rather fast operation and directories need
-        to be created in advance (before uploading file to them).
-    '''
-    s, r = self.cloud.mkDir(path)
-    for root, dirs, files in walk(path):
-      if in_paths(root, exclude):
-        break
-      for d in dirs:
-        s, r = self.cloud.mkDir(path_join(root, d))
-        info('done in-line %s %s'%(str(s), str(r)))
-        ### !need to check success of folder creation! !need to decide what to do in case of error!
-      for f in files:
-        submit(self.cloud.upload, (path_join(root, f),))
-    return 'recCreate'
-
+      self._submit(_fullSync, self)
 
   def _eventHandler(self):      # Thread that handles iNotify watcher events
+
+    def _recCreate(path, exclude, submit):
+      ''' It recursively creates folders and files in cloud, starting from specified directory.
+          It itself executed in threadExecutor and submits files uploads to threadExecutor but
+          directories created by direct calls as it rather fast operation and directories need
+          to be created in advance (before uploading file to them).
+      '''
+      s, r = self.task('mkdir', path)
+      for root, dirs, files in walk(path):
+        if in_paths(root, exclude):
+          break
+        for d in dirs:
+          s, r = self.task('mkdir', path_join(root, d))
+          info('done in-line %s %s'%(str(s), str(r)))
+          ### !need to check success of folder creation! !need to decide what to do in case of error!
+        for f in files:
+          submit('up', (path_join(root, f),))
+      return 'recCreate'
 
     def new(event):
       if event.dir:
@@ -426,9 +429,9 @@ class Disk(Cloud):
             # So we need to walk inside and upload all directories, subdirectories and files
             # that are within the moved directory.
             # Do this task within threadExecutor as it can rather many files inside.
-            self._submit('reccr', event.pathname)
+            self._submit(_recCreate, event.pathname, self.watch.exclude, self._submit)
           else:
-            self._submit('mkdir', event.pathname)
+            self.task('mkdir', event.pathname)
       else:   # it is file
         # do not start upload for downloading file
         if event.pathname not in self.downloads:
@@ -476,7 +479,7 @@ class Disk(Cloud):
         elif event.mask & IN_ATTRIB:
           # do not update cloud properties for downloading file
           if event.pathname not in self.downloads:
-            self._submit('attrs', event.pathname)
+            self._submit('setm', event.pathname)
 
   class _PathWatcher(Queue):    # iNotify watcher for directory
     '''
@@ -524,7 +527,7 @@ class Disk(Cloud):
     '''Activate synchronizations with Yandex.disk
        Check connection and activate local watching object and cloud listener'''
     if self.status.startswith('no'): # self.status in ('none', 'no_net')
-      if self.cloud.getDiskInfo()[0]:
+      if self.task('info')[0]:  # check connection
         self.watch.start()
         #self.listener.start()
         self._setStatus('busy')

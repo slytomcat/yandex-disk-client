@@ -92,14 +92,14 @@ class test_Disk(unittest.TestCase):
 
   def test_Disk_45_list(self):
     l = 0
-    for i in self.disk.cloud.getList(chunk=5):
+    for i in self.disk.task('list', 5):
       l += 1
     self.assertTrue(l > 0)
 
   def test_Disk_50_DownloadNew(self):
     self.disk.disconnect()
-    remove(self.disk.cloud.h_data._filePath) # remove history
-    self.disk.cloud.h_data.clear()           # reset it in memory
+    remove(self.disk.h_data._filePath) # remove history
+    self.disk.h_data.clear()           # reset it in memory
     path = path_join(self.disk.path, 'word.docx')
     remove(path)
     self.disk.connect()
@@ -112,7 +112,7 @@ class test_Disk(unittest.TestCase):
     rmtree(path_join(self.disk.path, 'd1'))
     self.disk.connect()
     sleep(30)
-    stat, _ = self.disk.cloud.getResource('d1')
+    stat = self.disk.task('res', 'd1')[0]
     self.assertFalse(stat)
     self.assertTrue(self.disk.status == 'idle')
 
@@ -125,7 +125,7 @@ class test_Disk(unittest.TestCase):
       f.write('test test file file')
     self.disk.connect()
     sleep(30)
-    stat, _ = self.disk.cloud.getResource('d1/d2/file')
+    stat = self.disk.task('res', 'd1/d2/file')[0]
     self.assertTrue(stat)
     self.assertTrue(self.disk.status == 'idle')
 
@@ -133,7 +133,7 @@ class test_Disk(unittest.TestCase):
     with open('d1/d2/file', 'wt') as f:
       f.write('test file')
     sleep(30)
-    stat, _ = self.disk.cloud.getResource('d1/d2/file')
+    stat = self.disk.task('res', 'd1/d2/file')[0]
     self.assertTrue(stat)
     self.assertTrue(self.disk.status == 'idle')
 
@@ -141,14 +141,14 @@ class test_Disk(unittest.TestCase):
     self.disk.disconnect()
     r_path = 'd1/d2/file'
     path = path_join(self.disk.path, r_path)
-    mt = self.disk.cloud.h_data.get(path)
+    mt = self.disk.h_data.get(path)
     self.assertFalse(mt is None)
     with open(r_path, 'wt') as f:
       f.write('test test')
     self.disk.connect()
     sleep(30)
     self.assertTrue(self.disk.status == 'idle')
-    stat, res = self.disk.cloud.getResource('d1/d2/file')
+    stat, res  = self.disk.task('res', 'd1/d2/file')
     self.assertTrue(stat)
     self.assertTrue(res['modified']> mt)
 
@@ -156,15 +156,15 @@ class test_Disk(unittest.TestCase):
     self.disk.disconnect()
     r_path = 'd1/d2/file'
     path = path_join(self.disk.path, r_path)
-    mt = self.disk.cloud.h_data.get(path)
+    mt = self.disk.h_data.get(path)
     with tempFile(delete=False, mode='wt') as f:
       temp = f.name
       f.write('file file')
-    Cloud.upload(self.disk.cloud, temp, r_path)
+    Cloud.task(self.disk, 'up', temp, r_path)
     self.disk.connect()
     sleep(30)
     self.assertTrue(self.disk.status == 'idle')
-    self.assertTrue(self.disk.cloud.h_data.get(path) > mt)
+    self.assertTrue(self.disk.h_data.get(path) > mt)
 
   '''
   def test_Disk_80_Conflict(self):
