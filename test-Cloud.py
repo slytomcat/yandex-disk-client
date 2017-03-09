@@ -33,97 +33,151 @@ class test_Cloud(unittest.TestCase):
   cloud = Cloud(getenv('API_TOKEN') if getenv('CIRCLE_ENV') == 'test' else
                 findall(r'API_TOKEN: (.*)', open('OAuth.info', 'rt').read())[0].strip())
 
-  def test_Cloud_DiskInfo(self):
-    stat, res = self.cloud.getDiskInfo()
+  def test_Cloud00_DiskInfo(self):
+    stat, res = self.cloud.task('info')
     self.assertTrue(stat)
     self.assertIs(type(res), dict)
 
-
-  def test_Cloud_Dir_ops(self):
-    stat, res = self.cloud.mkDir('testdir')
+  def test_Cloud10_Dir_1Create(self):
+    # create new folder
+    stat, res = self.cloud.task('mkdir', 'testdir')
     self.assertTrue(stat)
-    stat, res = self.cloud.mkDir('testdir')
-    self.assertTrue(stat)
-    stat, res = self.cloud.move('testdir', 'not_existing_dir/bla-bla')
+    self.assertTrue(res == ('mkdir', 'testdir'))
+    # create the same new folder again
+    stat, res = self.cloud.task('mkdir', 'testdir')
+    self.assertTrue(stat)    # this error should be ignored
+    self.assertTrue(res == ('mkdir', 'testdir'))
+    # try to create new folder within non-existing folder
+    stat, res = self.cloud.task('mkdir', 'not_existing_dir/bla-bla/dir')
     self.assertFalse(stat)
-    stat, res = self.cloud.move('testdir', 'newtestdir')
+    self.assertTrue(res[:2] == ('mkdir', 'not_existing_dir/bla-bla/dir'))
+    self.assertIs(type(res[-1]), dict)
+
+  def test_Cloud10_Dir_2move(self):
+    # move from existing folder 'testdir' to non-existing folder 'newtestdir'
+    stat, res = self.cloud.task('move', 'newtestdir', 'testdir')
     self.assertTrue(stat)
-    stat, res = self.cloud.getResource('newtestdir')
-    self.assertTrue(stat)
-    stat, res = self.cloud.copy('newtestdir', 'not_existing_dir/bla-bla')
+    self.assertTrue(res == ('move', 'newtestdir', 'testdir'))
+    # try to move existing folder to non-existing folder
+    stat, res = self.cloud.task('move', 'not_existing_dir/bla-bla', 'newtestdir')
     self.assertFalse(stat)
-    stat, res = self.cloud.mkDir('not_existing_dir/bla-bla/dir')
+    self.assertTrue(res[:2] == ('move', 'not_existing_dir/bla-bla'))
+    self.assertIs(type(res[-1]), dict)
+    # try to move from non-existing folder to non-existing one
+    stat, res = self.cloud.task('move', 'not_existing_dir/bla-bla', 'testdir', )
     self.assertFalse(stat)
-    stat, res = self.cloud.delete('newtestdir')
-    self.assertTrue(stat)
+    self.assertTrue(res[:2] == ('move', 'not_existing_dir/bla-bla'))
+    self.assertIs(type(res[-1]), dict)
 
-  def test_Cloud_bigDir_1copy(self):
-    stat, res = self.cloud.copy('Music', 'MusicTest')
-    self.assertTrue(stat)
 
-  def test_Cloud_bigDir_2move(self):
-    stat, res = self.cloud.move('MusicTest', 'MusicTestTest')
+  def test_Cloud10_Dir_3copy(self):
+    # copy from existing folder 'newtestdir' to non-existing folder 'testdir'
+    stat, res = self.cloud.task('copy', 'testdir', 'newtestdir')
     self.assertTrue(stat)
+    self.assertTrue(res == ('copy', 'testdir', 'newtestdir'))
+    # try to copy existing folder to non-existing folder
+    stat, res = self.cloud.task('copy', 'not_existing_dir/bla-bla', 'newtestdir')
+    self.assertFalse(stat)
+    self.assertTrue(res[:2] == ('copy', 'not_existing_dir/bla-bla'))
+    self.assertIs(type(res[-1]), dict)
+    # try to copy from non-existing folder to non-existing one
+    stat, res = self.cloud.task('copy', 'not_existing_dir/bla-bla', 'testdir_1', )
+    self.assertFalse(stat)
+    self.assertTrue(res[:2] == ('copy', 'not_existing_dir/bla-bla'))
+    self.assertIs(type(res[-1]), dict)
 
-  def test_Cloud_bigDir_3delete(self):
-    stat, res = self.cloud.delete('MusicTestTest')
+  def test_Cloud10_Dir_4del(self):
+    # remove existing folder
+    stat, res = self.cloud.task('del', 'newtestdir')
     self.assertTrue(stat)
+    self.assertTrue(res == ('del', 'newtestdir'))
+    # remove another existing folder
+    stat, res = self.cloud.task('del', 'testdir')
+    self.assertTrue(stat)
+    self.assertTrue(res == ('del', 'testdir'))
+    # remove non-existing folder
+    stat, res = self.cloud.task('del', 'not_existing_dir/bla-bla')
+    self.assertFalse(stat)
+    self.assertTrue(res[:2] == ('del', 'not_existing_dir/bla-bla'))
+    self.assertIs(type(res[-1]), dict)
 
-  def test_Cloud_props_1set(self):
-    stat, res = self.cloud.setProps('Sea.jpg', uid=1000, gid=1000, mode=33204)
+  def test_Cloud20_bigDir_1copy(self):
+    stat, res = self.cloud.task('copy', 'MusicTest', 'Music')
     self.assertTrue(stat)
+    self.assertTrue(res == ('copy', 'MusicTest', 'Music'))
 
-  def test_Cloud_props_2get(self):
-    stat, res = self.cloud.getResource('Sea.jpg')
+
+  def test_Cloud20_bigDir_2move(self):
+    stat, res = self.cloud.task('move', 'MusicTestTest', 'MusicTest')
     self.assertTrue(stat)
+    self.assertTrue(res == ('move', 'MusicTestTest', 'MusicTest'))
+
+  def test_Cloud20_bigDir_3delete(self):
+    stat, res = self.cloud.task('del', 'MusicTestTest')
+    self.assertTrue(stat)
+    self.assertTrue(res == ('del', 'MusicTestTest'))
+
+
+  def test_Cloud30_props_1set(self):
+    stat, res = self.cloud.task('prop', 'Sea.jpg', uid=1000, gid=1000, mode=33204)
+    self.assertTrue(stat)
+    self.assertTrue(res == ('prop', 'Sea.jpg'))
+
+  def test_Cloud30_props_2get(self):
+    stat, res = self.cloud.task('res', 'Sea.jpg')
+    self.assertTrue(stat)
+    self.assertIs(type(res), dict)
     props = res.get("custom_properties")
     self.assertFalse(props is None)
     self.assertEqual(props.get('uid'), 1000)
     self.assertEqual(props.get('gid'), 1000)
     self.assertEqual(props.get('mode'), 33204)
 
-  def test_Cloud_wrong_res(self):
-    stat, res = self.cloud.getResource('not_existing_file.bla_bla')
+  def test_Cloud40_wrong_res(self):
+    stat, res = self.cloud.task('res', 'not_existing_file.bla_bla')
+    self.assertIs(type(res), tuple)
     self.assertFalse(stat)
+    self.assertTrue(res[:2] == ('res', 'not_existing_file.bla_bla'))
+    self.assertIs(type(res[-1]), dict)
 
   def _trush(self):
-    stat, res = self.cloud.trash()
+    stat, res = self.cloud.task('trash')
     self.assertTrue(stat)
-    stat, res = self.cloud.getDiskInfo()
+    stat, res = self.cloud.task('info')
     self.assertTrue(stat)
     self.assertEqual(res.get('trash_size'), 0)
 
-  def test_Cloud_trush(self):
+  def test_Cloud50_trush(self):
     self._trush()
     self._trush()
 
-  def test_Cloud_up_down1_up(self):
-    stat, res = self.cloud.upload('README.md', 'README.md')
+  def test_Cloud60_1up(self):
+    stat, res = self.cloud.task('up', 'README.md', 'README.md')
     self.assertTrue(stat)
 
-  def test_Cloud_up_down2_down(self):
-    stat, res = self.cloud.download('README.md', '/tmp/README.md')
+  def test_Cloud60_2down(self):
+    stat, res = self.cloud.task('down', 'README.md', '/tmp/README.md')
     self.assertTrue(stat)
     remove('/tmp/README.md')
-    self.cloud.delete('README.md')
+    self.cloud.task('del', 'README.md')
 
-  def test_Cloud_last(self):
-    stat, res = self.cloud.getLast()
+  def test_Cloud70_last(self):
+    stat, res = self.cloud.task('last')
     self.assertTrue(stat)
     self.assertIs(type(res), list)
 
-  def test_Cloud_list(self):
-    stat, res = self.cloud.getList(chunk=5)
+  def test_Cloud80_list(self):
+    stat, res = self.cloud.task('list', 5, 0)
     self.assertTrue(stat)
     self.assertIs(type(res), list)
     self.assertEqual(len(res), 5)
 
-  def test_Cloud_wrong_list(self):
-    stat, res = self.cloud.getList(chunk=7777777777)
+  def test_Cloud80_wrong_list(self):
+    stat, res = self.cloud.task('list', 7777777777, 0)
     self.assertFalse(stat)
 
-  def test_Cloud_wrong_delete(self):
-    stat, res = self.cloud.delete('not_existing_file.bla_bla')
+  def test_Cloud90_wrong_delete(self):
+    stat, res = self.cloud.task('del', 'not_existing_file.bla_bla')
     self.assertFalse(stat)
 
 if __name__ == '__main__':
