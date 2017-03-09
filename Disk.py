@@ -414,7 +414,7 @@ class Disk(Cloud):
           info('done in-line %s %s'%(str(s), str(r)))
           ### !need to check success of folder creation! !need to decide what to do in case of error!
         for f in files:
-          submit('up', (path_join(root, f),))
+          submit('up', path_join(root, f))
       return 'recCreate'
 
     def new(event):

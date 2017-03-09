@@ -160,11 +160,11 @@ class test_Disk(unittest.TestCase):
     with tempFile(delete=False, mode='wt') as f:
       temp = f.name
       f.write('file file')
-    Cloud.task(self.disk, 'up', temp, r_path)
+    Cloud.task(self.disk, 'up', r_path, temp)
     self.disk.connect()
     sleep(30)
     self.assertTrue(self.disk.status == 'idle')
-    self.assertTrue(self.disk.h_data.get(path) > mt)
+    self.assertGreater(self.disk.h_data.get(path), mt)
 
   '''
   def test_Disk_80_Conflict(self):
