@@ -32,9 +32,11 @@ class Cloud(_Cloud):
     - all paths in parameters are absolute paths only
     - download/upload have only 1 parameter - absolute path of file
     - getList converted to generator that yields individual file
+    - modified property converted to POSIX time value
     - download is performed through the temporary file
-    - upload stores uid, gid, mode of file in custom_properties
-    - download restores uid, gid, mode from custom_properties of file
+    - upload stores access mode of file in custom_properties
+    - download restores access mode from custom_properties of file
+    - additional methods to store and get/apply the access mode of the file.
     - history data updates according to the success operations
 
     The task method can be called with following parameters:
@@ -117,7 +119,7 @@ class Cloud(_Cloud):
     return super().task('prop', r_path, mode=mode)
 
   def _download(self, cmd, path):    # download via temporary file to make it in transaction manner
-    with tempFile(suffix='.temp', delete=False, dir=self.work_dir) as f:
+    with tempFile(suffix='.temp', delete=False) as f:  # , dir=self.work_dir
       temp = f.name
     r_path = relpath(path, start=self.path)
     status, res = super().task(cmd, r_path, temp)

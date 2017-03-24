@@ -398,12 +398,13 @@ class Disk(Cloud):
       self._submit(_fullSync, self)
 
   def _eventHandler(self):      # Thread that handles iNotify watcher events
-
+    # Event handler local functions
     def _recCreate(path, exclude, submit):
-      ''' It recursively creates folders and files in cloud, starting from specified directory.
-          It itself executed in threadExecutor and submits files uploads to threadExecutor but
-          directories created by direct calls as it rather fast operation and directories need
-          to be created in advance (before uploading file to them).
+      '''
+        It recursively creates folders and files in cloud, starting from specified directory.
+        It itself executed in threadExecutor and submits files uploads to threadExecutor but
+        directories created by direct calls as it rather fast operation and directories need
+        to be created in advance (before uploading file to them).
       '''
       s, r = self.task('mkdir', path)
       for root, dirs, files in walk(path):
@@ -418,6 +419,9 @@ class Disk(Cloud):
       return 'recCreate'
 
     def new(event):
+      '''
+        Handle new file/folder appearance
+      '''
       if event.dir:
         if event.pathname in self.downloads:
           # this dir was created locally within fullSync it is already exists in the cloud
@@ -437,49 +441,55 @@ class Disk(Cloud):
         if event.pathname not in self.downloads:
           self._submit('up', event.pathname)
 
-    def moved(event):  # handle standalone moved events
+    def moved(event):
+      '''
+        Handle standalone moved events
+      '''
       if event.mask & IN_MOVED_TO:  # moved in = new
         new(event)
       else:  # moved out = deleted
         self._submit('del', event.pathname)
-
+    '''
+    Event handling thread
+    '''
     while not self.shutdown:
       event = self.watch.get()
-      if event is not None:
-        info(event)
-        ''' event.pathname - full path
-        '''
-        while event.mask & (IN_MOVED_FROM | IN_MOVED_TO):
+      if event is None:
+        continue
+      info(event)
+      ''' event.pathname - full path
+      '''
+      while event.mask & (IN_MOVED_FROM | IN_MOVED_TO):
+        try:
+          event2 = self.watch.get(timeout=0.1)
+          info(event2)
           try:
-            event2 = self.watch.get(timeout=0.1)
-            info(event2)
-            try:
-              cookie = event2.cookie
-            except AttributeError:
-              cookie = ''
-            if event.cookie == cookie:
-              # great! we've found the move operation (file moved within the synced path)
-              self._submit('move', event.pathname, event2.pathname)
-              break  # as ve alredy treated two MOVED events
-            else:
-              moved(event)  # treat first MOVED event as standalone
-              event = event2  # treat second MOVED event
-          except Empty:
+            cookie = event2.cookie
+          except AttributeError:
+            cookie = ''
+          if event.cookie == cookie:
+            # great! we've found the move operation (file moved within the synced path)
+            self._submit('move', event.pathname, event2.pathname)
+            break  # as ve alredy treated two MOVED events
+          else:
             moved(event)  # treat first MOVED event as standalone
-            break
-        # treat not MOVED events
-        if event.mask & IN_CREATE:
-          new(event)
-        elif event.mask & IN_DELETE:
-          self._submit('del', event.pathname)
-        elif event.mask & IN_MODIFY:
-          # do not start upload for downloading file
-          if event.pathname not in self.downloads:
-            self._submit('up', event.pathname)
-        elif event.mask & IN_ATTRIB:
-          # do not update cloud properties for downloading file
-          if event.pathname not in self.downloads:
-            self._submit('setm', event.pathname)
+            event = event2  # treat second MOVED event
+        except Empty:
+          moved(event)  # treat first MOVED event as standalone
+          break
+      # treat not MOVED events
+      if event.mask & IN_CREATE:
+        new(event)
+      elif event.mask & IN_DELETE:
+        self._submit('del', event.pathname)
+      elif event.mask & IN_MODIFY:
+        # do not start upload for downloading file
+        if event.pathname not in self.downloads:
+          self._submit('up', event.pathname)
+      elif event.mask & IN_ATTRIB:
+        # do not update cloud properties for downloading file
+        if event.pathname not in self.downloads:
+          self._submit('setm', event.pathname)
 
   class _PathWatcher(Queue):    # iNotify watcher for directory
     '''
