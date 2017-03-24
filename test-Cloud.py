@@ -32,6 +32,8 @@ class test_Cloud(unittest.TestCase):
   '''
   cloud = Cloud(getenv('API_TOKEN') if getenv('CIRCLE_ENV') == 'test' else
                 findall(r'API_TOKEN: (.*)', open('OAuth.info', 'rt').read())[0].strip())
+  print(getenv('API_TOKEN') if getenv('CIRCLE_ENV') == 'test' else
+                findall(r'API_TOKEN: (.*)', open('OAuth.info', 'rt').read())[0].strip())
 
   def test_Cloud00_DiskInfo(self):
     stat, res = self.cloud.task('info')
@@ -144,8 +146,12 @@ class test_Cloud(unittest.TestCase):
     # first run can be asynchronous
     stat, res = self.cloud.task('trash')
     self.assertTrue(stat)
+    stat, res = self.cloud.task('info')
+    self.assertTrue(stat)
     self.assertEqual(res.get('trash_size',-1), 0)
     # first run can be synchronous
+    stat, res = self.cloud.task('info')
+    self.assertTrue(stat)
     stat, res = self.cloud.task('info')
     self.assertTrue(stat)
     self.assertEqual(res.get('trash_size',-1), 0)
