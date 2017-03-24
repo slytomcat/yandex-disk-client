@@ -2,7 +2,7 @@
 #
 #  Cloud - low level yanex.disk REST API wraper
 #
-#  Copyright 2016 Sly_tom_cat <slytomcat@mail.ru>
+#  Copyright 2016,2017 Sly_tom_cat <slytomcat@mail.ru>
 #
 #  This program is free software; you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by

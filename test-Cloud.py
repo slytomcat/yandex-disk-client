@@ -32,6 +32,8 @@ class test_Cloud(unittest.TestCase):
   '''
   cloud = Cloud(getenv('API_TOKEN') if getenv('CIRCLE_ENV') == 'test' else
                 findall(r'API_TOKEN: (.*)', open('OAuth.info', 'rt').read())[0].strip())
+  print(getenv('API_TOKEN') if getenv('CIRCLE_ENV') == 'test' else
+                findall(r'API_TOKEN: (.*)', open('OAuth.info', 'rt').read())[0].strip())
 
   def test_Cloud00_DiskInfo(self):
     stat, res = self.cloud.task('info')
@@ -40,13 +42,13 @@ class test_Cloud(unittest.TestCase):
 
   def test_Cloud10_Dir_1Create(self):
     # create new folder
-    stat, res = self.cloud.task('mkdir', 'testdir')
+    stat, res = self.cloud.task('mkdir', 'test dir')
     self.assertTrue(stat)
-    self.assertTrue(res == ('mkdir', 'testdir'))
+    self.assertTrue(res == ('mkdir', 'test dir'))
     # create the same new folder again
-    stat, res = self.cloud.task('mkdir', 'testdir')
+    stat, res = self.cloud.task('mkdir', 'test dir')
     self.assertTrue(stat)    # this error should be ignored
-    self.assertTrue(res == ('mkdir', 'testdir'))
+    self.assertTrue(res == ('mkdir', 'test dir'))
     # try to create new folder within non-existing folder
     stat, res = self.cloud.task('mkdir', 'not_existing_dir/bla-bla/dir')
     self.assertFalse(stat)
@@ -54,27 +56,27 @@ class test_Cloud(unittest.TestCase):
     self.assertIs(type(res[-1]), dict)
 
   def test_Cloud10_Dir_2move(self):
-    # move from existing folder 'testdir' to non-existing folder 'newtestdir'
-    stat, res = self.cloud.task('move', 'newtestdir', 'testdir')
+    # move from existing folder 'test dir' to non-existing folder 'newtestdir'
+    stat, res = self.cloud.task('move', 'newtestdir', 'test dir')
     self.assertTrue(stat)
-    self.assertTrue(res == ('move', 'newtestdir', 'testdir'))
+    self.assertTrue(res == ('move', 'newtestdir', 'test dir'))
     # try to move existing folder to non-existing folder
     stat, res = self.cloud.task('move', 'not_existing_dir/bla-bla', 'newtestdir')
     self.assertFalse(stat)
     self.assertTrue(res[:2] == ('move', 'not_existing_dir/bla-bla'))
     self.assertIs(type(res[-1]), dict)
     # try to move from non-existing folder to non-existing one
-    stat, res = self.cloud.task('move', 'not_existing_dir/bla-bla', 'testdir', )
+    stat, res = self.cloud.task('move', 'not_existing_dir/bla-bla', 'test dir', )
     self.assertFalse(stat)
     self.assertTrue(res[:2] == ('move', 'not_existing_dir/bla-bla'))
     self.assertIs(type(res[-1]), dict)
 
 
   def test_Cloud10_Dir_3copy(self):
-    # copy from existing folder 'newtestdir' to non-existing folder 'testdir'
-    stat, res = self.cloud.task('copy', 'testdir', 'newtestdir')
+    # copy from existing folder 'newtestdir' to non-existing folder 'test dir'
+    stat, res = self.cloud.task('copy', 'test dir', 'newtestdir')
     self.assertTrue(stat)
-    self.assertTrue(res == ('copy', 'testdir', 'newtestdir'))
+    self.assertTrue(res == ('copy', 'test dir', 'newtestdir'))
     # try to copy existing folder to non-existing folder
     stat, res = self.cloud.task('copy', 'not_existing_dir/bla-bla', 'newtestdir')
     self.assertFalse(stat)
@@ -92,9 +94,9 @@ class test_Cloud(unittest.TestCase):
     self.assertTrue(stat)
     self.assertTrue(res == ('del', 'newtestdir'))
     # remove another existing folder
-    stat, res = self.cloud.task('del', 'testdir')
+    stat, res = self.cloud.task('del', 'test dir')
     self.assertTrue(stat)
-    self.assertTrue(res == ('del', 'testdir'))
+    self.assertTrue(res == ('del', 'test dir'))
     # remove non-existing folder
     stat, res = self.cloud.task('del', 'not_existing_dir/bla-bla')
     self.assertFalse(stat)
@@ -141,11 +143,18 @@ class test_Cloud(unittest.TestCase):
     self.assertIs(type(res[-1]), dict)
 
   def _trush(self):
+    # first run can be asynchronous
     stat, res = self.cloud.task('trash')
     self.assertTrue(stat)
     stat, res = self.cloud.task('info')
     self.assertTrue(stat)
-    self.assertEqual(res.get('trash_size'), 0)
+    self.assertEqual(res.get('trash_size',-1), 0)
+    # first run can be synchronous
+    stat, res = self.cloud.task('info')
+    self.assertTrue(stat)
+    stat, res = self.cloud.task('info')
+    self.assertTrue(stat)
+    self.assertEqual(res.get('trash_size',-1), 0)
 
   def test_Cloud50_trush(self):
     self._trush()
@@ -181,4 +190,6 @@ class test_Cloud(unittest.TestCase):
     self.assertFalse(stat)
 
 if __name__ == '__main__':
+  #from logging import basicConfig as logConfig
+  #logConfig(level=10, format='%(asctime)s %(levelname)s %(message)s')
   unittest.main()

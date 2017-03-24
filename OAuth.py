@@ -49,7 +49,7 @@ def getToken(app_id, app_secret, gui=False):
            'response_type=code',                  # 'token' itself  or 'code' for token request
            'client_id=%s' % app_id,               # application identificator
            #'device_name=%s' % uname().nodename)), # device name (host name)
-           'display=popup'                        # popup - no additional decoration on the page
+           'display=popup' ))                     # popup - no additional decoration on the page
         )
   while token == '':
     call(['xdg-open', url], stdout=DEVNULL, stderr= DEVNULL)
@@ -103,8 +103,8 @@ if __name__ == '__main__':
   print(login, token)
 
   '''Test token have to be stored in file 'OAuth.info' in following format:
-         devtoken: <OAuth token>
+         API_TOKEN: <OAuth token>
   '''
-  re.sub(r'devtoken: \S*', 'devtoken: %s' % token, buf)
+  re.sub(r'API_TOKEN: \S*', 'devtoken: %s' % token, buf)
   with open('OAuth.info', 'wt') as f:
     f.write(buf)
