@@ -13,5 +13,5 @@ machine:
 
 test:
   override:
-    - nosetests -v --with-coverage --cover-package=Disk,CloudDisk,Cloud,jconfig
+    - nosetests -v --with-coverage --cover-package=Disk,CloudDisk,Cloud,jconfig,YmlConfig
 
