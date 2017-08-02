@@ -11,7 +11,11 @@ OAuth.py - Yandex OAuth authorisation via verification code (CLI/GUI) + tests: c
 
 jconfig.py - configuration object (dict | file in JSON) + tests: completed + CircleCI tests
 
+YmlConfig.py - another configuration object (dict | file in YML) + tests: completed + CircleCI tests
+
 Cloud.py - wraper class for YD rest API + tests: completed + CircleCI tests
+
+CloudDisk.py - second wrapper class for Cloud, it implements local absolute paths and file|dir history: completed + CircleCI tests
 
 PoolExecutor.py - modified concurrent.futures.ThreadPoolExecutor: completed
    * added method unfinished() - the number of unfinished tasks (which are currently executed and wait in queue). It's required for executor status control (when unfinished returns 0 then executor is in the idle state).
@@ -21,4 +25,6 @@ xmpp.py - some samples of xmpp client: sample|draft
 
 pyinotify.py - fixed version (see https://github.com/seb-m/pyinotify/pull/135): completed
 
-Disk.py - primary YD client class + basic runtime: in progress (iNotify events handling - done, status tracking - done, fullSync with history data - done, xmpp client events handling - not started) + CircleCI common test
+Disk.py - primary YD client class: in progress (iNotify events handling - done, status tracking - done, fullSync with history data - done, xmpp client events handling - not started) + CircleCI tests
+
+interactive.py - basic interactive runtime for Disk class
