@@ -90,6 +90,8 @@ class Cloud(_Cloud):
             offset += chunk
         else:
           break
+      else:
+        break
 
   def _getResource(self, cmd, path):
     status, result = super().task(cmd, relpath(path, start=self.path))

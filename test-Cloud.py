@@ -32,13 +32,16 @@ class test_Cloud(unittest.TestCase):
   '''
   cloud = Cloud(getenv('API_TOKEN') if getenv('CIRCLE_ENV') == 'test' else
                 findall(r'API_TOKEN: (.*)', open('OAuth.info', 'rt').read())[0].strip())
-  print(getenv('API_TOKEN') if getenv('CIRCLE_ENV') == 'test' else
-                findall(r'API_TOKEN: (.*)', open('OAuth.info', 'rt').read())[0].strip())
 
   def test_Cloud00_DiskInfo(self):
     stat, res = self.cloud.task('info')
     self.assertTrue(stat)
     self.assertIs(type(res), dict)
+
+  def test_Cloud00_WrongAuth(self):
+    c = Cloud('WRONG_TOKEN')
+    stat, res = c.task('list', 5, 0)
+    self.assertFalse(stat)
 
   def test_Cloud10_Dir_1Create(self):
     # create new folder
