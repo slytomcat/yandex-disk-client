@@ -34,7 +34,7 @@ class Test_jconfig(unittest.TestCase):
                                'exclude': ['tests', 'other/private'],
                                'ro': False,
                                'ow': False },
-                       'stc1':{'login': 'stc',
+                       'stc1':{'login': 'stc1',
                                'path': '~/yd',
                                'auth': '84458090987',
                                'start': True,
