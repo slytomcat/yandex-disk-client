@@ -64,23 +64,27 @@ if __name__ == '__main__':
       if input(_('Do you want to configure new account (Y/n):')).lower() not in ('', 'y'):
         appExit(_('Exit.'))
       else:
-        path = ''
-        while not pathExists(path):
-          path = input(_('Enter the path to local folder '
-                         'which will by synchronized with cloud disk. (Default: ~/YandexDisk):'))
-          if not path:
-            path = '~/YandexDisk'
-          path = expanduser(path)
-          if not pathExists(path):
-            try:
-              makedirs(path_join(path, dataFolder), exist_ok=True)
-            except:
-              print('Error: Incorrect folder path specified (no access or wrong path name).')
-        token = getToken('389b4420fc6e4f509cda3b533ca0f3fd', '5145f7a99e7943c28659d769752f6dae')
-        login = getLogin(token)
-        config['disks'][login] = {'login': login, 'auth': token, 'path': path, 'start': True,
-                                  'ro': False, 'ow': False, 'exclude': []}
-        config.save()
+        while True:
+          path = ''
+          while not pathExists(path):
+            path = input(_('Enter the path to local folder '
+                           'which will by synchronized with cloud disk. (Default: ~/YandexDisk):'))
+            if not path:
+              path = '~/YandexDisk'
+            path = expanduser(path)
+            if not pathExists(path):
+              try:
+                makedirs(path_join(path, dataFolder), exist_ok=True)
+              except:
+                print('Error: Incorrect folder path specified (no access or wrong path name).')
+                continue
+          token = getToken('389b4420fc6e4f509cda3b533ca0f3fd', '5145f7a99e7943c28659d769752f6dae')
+          login = getLogin(token)
+          config['disks'][login] = {'login': login, 'auth': token, 'path': path, 'start': True,
+                                    'ro': False, 'ow': False, 'exclude': []}
+          config.save()
+          if input(_('Do you want to and one more account (y/N):')).lower() in ('', 'n'):
+            break
 
   # main thread final activity
 

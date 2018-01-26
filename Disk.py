@@ -21,13 +21,11 @@ from os import remove, makedirs, walk, stat as file_info, chown, chmod, utime
 from os.path import join as path_join, expanduser, relpath, split as path_split, exists as pathExists
 from pyinotify import ProcessEvent, WatchManager, Notifier, ThreadedNotifier, ExcludeFilter,\
                       IN_MODIFY, IN_DELETE, IN_CREATE, IN_MOVED_FROM, IN_MOVED_TO, IN_ATTRIB
-from threading import Thread, Event, enumerate
+from threading import Thread
 from queue import Queue, Empty
 from PoolExecutor import ThreadPoolExecutor
 from CloudDisk import Cloud
-from jconfig import Config
 from hashlib import sha256
-from tempfile import NamedTemporaryFile as tempFile
 from shutil import move as fileMove
 from datetime import datetime
 from time import time
