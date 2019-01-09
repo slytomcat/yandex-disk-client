@@ -1,5 +1,7 @@
 # yandex-disk-client
 [![CircleCI](https://circleci.com/gh/slytomcat/yandex-disk-client/tree/master.svg?style=svg)](https://circleci.com/gh/slytomcat/yandex-disk-client/tree/master)
+
+
 ***Project is frozen***
 Due to some idiology problems with selected the synchronization model and swiching the author interests to other projects and tools, this project is frozen.
 
